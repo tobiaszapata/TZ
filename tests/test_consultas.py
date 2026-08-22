@@ -165,3 +165,78 @@ def test_override_en_indice_region():
         v_manual, _ = indice_region(con, D1, H1, D0, H0, "GBA", overrides={"01.1.6": 200.0})
         assert v_manual > v_normal
         con.close()
+
+
+def test_nivel_general_combina_medida_y_manual_con_pesos_oficiales():
+    """El caso real pedido: Alimentos con dato medido (via SEPA) y
+    Comunicacion con el dato de otra consultora puesto a mano. Verificado
+    con la cuenta hecha a mano, usando el PESO OFICIAL COMPLETO de cada
+    division (no el peso interno de la clase que aporto el dato) — asi es
+    como corresponde combinar una vez que una division ya devolvio un
+    numero, sea medido o manual."""
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        from engine.consultas import nivel_general
+        from config.canasta import CANASTA
+
+        r = nivel_general(con, D1, H1, D0, H0, "GBA", overrides_division={"08": 3.5})
+
+        div01 = next(f for f in r.divisiones if f.codigo == "01")
+        div08 = next(f for f in r.divisiones if f.codigo == "08")
+        assert div01.fuente == "medida"
+        assert div08.fuente == "manual"
+        assert math.isclose(div08.variacion_pct, 3.5)
+
+        # Verificacion generica: la fixture _base() carga datos de VARIAS
+        # divisiones (no solo 01 y 08 — tambien 05), asi que el chequeo a
+        # mano se arma dinamicamente con todas las que devolvieron dato,
+        # en vez de asumir cuales son. Es lo que se corrigio ademas: la
+        # primera version de este test solo consideraba 01 y 08 y daba
+        # "distinto" porque se olvidaba de 05 — no era un bug del motor,
+        # era una cuenta a mano incompleta.
+        con_dato = [f for f in r.divisiones if f.variacion_pct is not None]
+        assert len(con_dato) >= 2
+        num = sum(f.peso * f.variacion_pct for f in con_dato)
+        den = sum(f.peso for f in con_dato)
+        assert math.isclose(r.variacion_pct, num / den, rel_tol=1e-9)
+        con.close()
+
+
+def test_nivel_general_division_manual_no_requiere_datos_en_la_base():
+    """Comunicacion no tiene NINGUNA clase medida por SEPA (cobertura
+    total = 0 clases MEDIDA_SEPA). El override tiene que funcionar igual,
+    sin que haga falta que haya una sola fila en la base para esa
+    division."""
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "vacia.db")
+        from engine.consultas import nivel_general
+        r = nivel_general(con, D1, H1, D0, H0, "GBA", overrides_division={"08": 5.0})
+        div08 = next(f for f in r.divisiones if f.codigo == "08")
+        assert div08.variacion_pct == 5.0
+        assert math.isclose(r.variacion_pct, 5.0)
+        con.close()
+
+
+def test_nivel_general_sin_overrides_ni_datos_devuelve_none():
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "vacia2.db")
+        from engine.consultas import nivel_general
+        r = nivel_general(con, D1, H1, D0, H0, "GBA")
+        assert r.variacion_pct is None
+        assert r.cobertura == 0.0
+        con.close()
+
+
+def test_nivel_general_reporta_cobertura_interna_de_cada_division():
+    """Cuando una division tiene MUCHAS clases pero solo una con dato, la
+    variacion de esa division igual se calcula (renormalizada) — pero la
+    cobertura_interna tiene que reflejar que fue parcial, para que la
+    interfaz pueda avisar que ese numero se apoya en poca informacion."""
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        from engine.consultas import nivel_general
+        r = nivel_general(con, D1, H1, D0, H0, "GBA")
+        div01 = next(f for f in r.divisiones if f.codigo == "01")
+        assert div01.cobertura_interna is not None
+        assert 0 < div01.cobertura_interna <= 1.0
+        con.close()

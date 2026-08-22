@@ -102,7 +102,17 @@ def _migrar(con: sqlite3.Connection) -> None:
 
 
 def conectar(path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(path)
+    # check_same_thread=False es necesario para Streamlit: la conexion se
+    # guarda en cache (@st.cache_resource) y Streamlit puede reutilizarla
+    # desde un hilo distinto al que la creo en cada re-corrida de la app.
+    # Sin esto, sqlite3 tira "ProgrammingError: SQLite objects created in
+    # a thread can only be used in that same thread" apenas se interactua
+    # con un widget (fue exactamente el error reportado en produccion).
+    # Es seguro en este caso porque la app de Streamlit SOLO LEE de la
+    # base — nunca escribe — y SQLite permite lecturas concurrentes sin
+    # problema; lo que no soporta bien es escritura concurrente, que acá
+    # no ocurre desde la interfaz.
+    con = sqlite3.connect(path, check_same_thread=False)
     con.execute("PRAGMA foreign_keys = ON")
     _migrar(con)
     con.executescript(SCHEMA)

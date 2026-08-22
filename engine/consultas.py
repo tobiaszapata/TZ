@@ -44,6 +44,7 @@ from config.canasta import (
     clases_de_division,
     divisiones,
 )
+from engine.agregacion import laspeyres
 from engine.reporte import calcular_clase_y_productos
 from storage.db import (
     nombres_de_productos,
@@ -197,3 +198,88 @@ def resumen_divisiones(con, desde, hasta, desde_base, hasta_base, region="GBA",
             salida.append(ResultadoDivision(
                 div.codigo, div.nombre, div.peso(region) * 100, None, 0.0, []))
     return salida
+
+
+@dataclass
+class FilaDivision:
+    codigo: str
+    nombre: str
+    peso: float
+    variacion_pct: float | None
+    fuente: str          # "medida" | "manual" | "sin_dato"
+    cobertura_interna: float | None = None   # % del peso PROPIO de la division cubierto por datos
+
+
+@dataclass
+class ResultadoNivelGeneral:
+    variacion_pct: float | None
+    cobertura: float          # fraccion del peso TOTAL del pais que quedo representada
+    divisiones: list[FilaDivision]
+
+
+def nivel_general(con, desde, hasta, desde_base, hasta_base, region="GBA",
+                  overrides_clase: dict[str, float] | None = None,
+                  overrides_division: dict[str, float] | None = None) -> ResultadoNivelGeneral:
+    """Combina las 12 divisiones en un nivel general, con los ponderadores
+    OFICIALES de INDEC para la region elegida.
+
+    Esto es lo que permite responder la pregunta real del proyecto: "las
+    divisiones que SEPA mide, que tomen su dato medido; las que no mide
+    (Comunicacion, Transporte, Vivienda...), que el usuario pueda poner el
+    dato que le da otra consultora — y ver qué nivel general resulta,
+    siguiendo siempre la misma metodologia de ponderacion de INDEC".
+
+    `overrides_clase`: pisa una SUBCATEGORIA puntual dentro de una division
+        medida (ver division_completa). Sigue funcionando igual que antes.
+    `overrides_division`: da un valor manual a una DIVISION ENTERA. Es lo
+        nuevo — pensado sobre todo para las divisiones sin ninguna clase
+        medida por SEPA (Comunicacion, Transporte, Vivienda, Prendas,
+        Educacion, Restaurantes), pero funciona igual si se quiere pisar
+        una division que sí tiene datos.
+
+    Ninguno de los dos parametros escribe nada en la base — ver el
+    docstring del modulo.
+    """
+    overrides_clase = overrides_clase or {}
+    overrides_division = overrides_division or {}
+
+    filas: list[FilaDivision] = []
+    valores: dict[str, float] = {}
+
+    for div in divisiones():
+        peso = div.peso(region) * 100
+
+        if div.codigo in overrides_division:
+            v = overrides_division[div.codigo]
+            fuente = "manual"
+            cobertura_interna = None
+        else:
+            tiene_cobertura = any(c.cobertura == Cobertura.MEDIDA_SEPA
+                                  for c in clases_de_division(div.codigo))
+            if tiene_cobertura:
+                res = division_completa(con, div.codigo, desde, hasta,
+                                        desde_base, hasta_base, region, overrides_clase)
+                v = res.variacion_pct
+                fuente = "medida" if v is not None else "sin_dato"
+                cobertura_interna = res.cobertura if v is not None else None
+            else:
+                v = None
+                fuente = "sin_dato"
+                cobertura_interna = None
+
+        filas.append(FilaDivision(div.codigo, div.nombre, peso, v, fuente, cobertura_interna))
+        if v is not None:
+            valores[div.codigo] = v
+
+    if not valores:
+        return ResultadoNivelGeneral(None, 0.0, filas)
+
+    pesos = {cod: CANASTA[cod].peso(region) * 100 for cod in valores}
+    agregado = laspeyres(valores, pesos)
+    peso_total_pais = sum(d.peso(region) * 100 for d in divisiones())
+
+    return ResultadoNivelGeneral(
+        variacion_pct=agregado.variacion_pct,
+        cobertura=agregado.peso_cubierto / peso_total_pais if peso_total_pais else 0.0,
+        divisiones=filas,
+    )
