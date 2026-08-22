@@ -1,0 +1,152 @@
+# RECOLECCION DIARIA AUTOMATICA
+#
+# POR QUE ESTE WORKFLOW SI SE ACTIVA DESDE EL DIA UNO (a diferencia del
+# resto del proyecto, que se corre a mano hasta validarlo):
+#
+# SEPA publica sus datos en una ventana movil de 7 dias — los recursos se
+# llaman por dia de la semana ("Lunes", "Martes", ...) y se SOBRESCRIBEN
+# cada semana. Un dia que no se descarga se pierde para siempre.
+#
+# Los datos son perecederos, entonces el riesgo de NO automatizar (perder
+# historia irrecuperable por un olvido o unas vacaciones) es mayor que el
+# riesgo de automatizar la descarga. El analisis y la publicacion siguen
+# siendo manuales: esto solo junta y guarda.
+#
+# QUE HACE, CADA DIA:
+#   1. baja el archivo de SEPA del dia
+#   2. lo carga en la base (relevamiento_precios.db)
+#   3. commitea la base actualizada al repo
+#   4. guarda el ZIP crudo como artifact, para poder reprocesar mas
+#      adelante si mejora el mapeo de productos
+#
+# CONFIGURACION NECESARIA (una sola vez, en GitHub):
+#   Settings > Actions > General > Workflow permissions
+#     -> marcar "Read and write permissions"
+#   Sin eso, el paso de commit falla por falta de permisos.
+
+name: Recoleccion diaria SEPA
+
+on:
+  # ---------------------------------------------------------------------
+  # HORARIO AUTOMATICO DESACTIVADO A PROPOSITO
+  #
+  # Se comprobo que el portal de datos abiertos devuelve 403 Forbidden a los
+  # pedidos que llegan desde servidores de GitHub. Es una proteccion antibot
+  # del portal, no un problema de este codigo: desde una computadora comun
+  # la descarga funciona.
+  #
+  # Mientras siga asi, la descarga diaria se hace en la PC con el Programador
+  # de tareas de Windows (ver actualizar.bat y la Guia, seccion 8 bis).
+  #
+  # El horario queda comentado para que el workflow NO falle todos los dias
+  # y llene la casilla de mails de avisos de error. Se puede seguir
+  # disparando a mano desde la pestana Actions para probar si el portal
+  # dejo de bloquear.
+  #
+  # PARA REACTIVARLO cuando el portal deje de bloquear: descomentar las dos
+  # lineas de abajo.
+  #
+  # schedule:
+  #   - cron: "0 11 * * *"   # 11:00 UTC = 8:00 ART
+  workflow_dispatch: {}   # permite dispararlo a mano desde la pestaña Actions
+
+# Evita que dos corridas se pisen si una tarda mucho.
+concurrency:
+  group: recoleccion-sepa
+  cancel-in-progress: false
+
+jobs:
+  recolectar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Reconstruir la base desde el historico
+        # El runner de GitHub arranca limpio cada vez: no hay base. Se
+        # reconstruye desde los CSV comprimidos del historico (que si estan
+        # versionados) antes de cargar el dia nuevo. Si el historico esta
+        # vacio, simplemente arranca una base nueva.
+        run: python -m scripts.reconstruir
+
+      - name: Diagnostico — que publica el portal hoy
+        # Corre ANTES de intentar descargar y no puede tumbar el workflow.
+        # Si el portal bloquea a GitHub (403), esto lo deja escrito en el log
+        # con el detalle, que es lo unico que hace falta para diagnosticar.
+        continue-on-error: true
+        run: python -m scripts.descargar_sepa --listar
+
+      - name: Descargar el archivo de SEPA de hoy
+        # continue-on-error: una descarga fallida NO debe tumbar la corrida.
+        # Puede pasar que el portal este caido un dia, o que bloquee pedidos
+        # desde servidores. El paso siguiente decide que hacer.
+        id: descarga
+        continue-on-error: true
+        run: python -m scripts.descargar_sepa --hoy --destino datos_sepa
+
+      - name: Verificar si hay algo para cargar
+        id: verificar
+        run: |
+          if ls datos_sepa/*.zip >/dev/null 2>&1; then
+            echo "hay_datos=si" >> $GITHUB_OUTPUT
+            echo "Se descargo el archivo del dia."
+          else
+            echo "hay_datos=no" >> $GITHUB_OUTPUT
+            echo "::warning::No se pudo descargar el archivo de SEPA de hoy."
+            echo ""
+            echo "==============================================================="
+            echo " NO HAY ARCHIVO PARA CARGAR HOY"
+            echo "==============================================================="
+            echo " Mira el paso 'Diagnostico' de arriba para ver el motivo."
+            echo ""
+            echo " Si el error es 403 Forbidden, el portal de datos abiertos"
+            echo " esta bloqueando los pedidos desde servidores de GitHub."
+            echo " Eso NO se arregla con codigo: hay que descargar desde una"
+            echo " computadora comun."
+            echo ""
+            echo " PLAN B (funciona siempre): programar la descarga en tu propia"
+            echo " PC con el Programador de tareas de Windows. Ver el manual,"
+            echo " seccion 8.2. El resto del proyecto no cambia."
+            echo ""
+            echo " Los dias ya guardados en historico/ no se pierden."
+            echo "==============================================================="
+          fi
+
+      - name: Guardar el ZIP crudo como artifact
+        # Retencion de 30 dias: permite reprocesar dias recientes si se
+        # mejora el mapeo. No se commitea al repo porque los ZIP son
+        # grandes y harian crecer el historial de git sin control.
+        if: steps.verificar.outputs.hay_datos == 'si'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sepa-crudo-${{ github.run_id }}
+          path: datos_sepa/*.zip
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Exportar el dia al historico versionable
+        # NO se commitea la base (.db): crece ~37 MB por dia, git guarda una
+        # copia entera del binario en cada commit y GitHub bloquea archivos
+        # de mas de 100 MB. En cambio se exporta un CSV comprimido por dia
+        # (pocos MB, texto plano, nunca se reescribe). Ver
+        # scripts/exportar_dia.py y scripts/reconstruir.py
+        if: steps.verificar.outputs.hay_datos == 'si'
+        run: python -m scripts.exportar_dia
+
+      - name: Commitear el historico
+        if: steps.verificar.outputs.hay_datos == 'si'
+        run: |
+          git config user.name "relevamiento-precios-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add historico/
+          git diff --staged --quiet || git commit -m "datos: recoleccion $(date +%F)"
+          git push
+
+      # Si la descarga o la carga fallan, el workflow queda en rojo y
+      # GitHub manda un mail al dueno del repo. Con ventana de 7 dias hay
+      # margen para reaccionar, pero no conviene dejarlo pasar mas de eso.

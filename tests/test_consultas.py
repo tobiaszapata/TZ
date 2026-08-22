@@ -1,0 +1,167 @@
+"""
+Tests de engine/consultas.py — la capa que usa la app de Streamlit.
+
+POR QUE IMPORTAN ESPECIALMENTE: el entorno donde se desarrollo esto no
+tiene Streamlit instalado ni salida a internet para instalarlo, asi que la
+pantalla en si no se pudo ejecutar. Pero como app_streamlit.py NO hace
+cuentas —solo llama a estas funciones— testear esto cubre toda la logica.
+Lo unico sin probar es el cableado de widgets.
+"""
+
+import math
+import tempfile
+from pathlib import Path
+
+from engine.consultas import (
+    division_completa,
+    indice_nacional,
+    indice_region,
+    resumen_divisiones,
+)
+from engine.index_elemental import ObservacionVariedad
+from storage.db import conectar, insertar_observaciones
+
+REGIONES = ["GBA", "Pampeana", "Noreste", "Noroeste", "Cuyo", "Patagonia"]
+SUBAS = {"GBA": 1.05, "Pampeana": 1.08, "Noreste": 1.12,
+         "Noroeste": 1.10, "Cuyo": 1.06, "Patagonia": 1.03}
+DATOS = {"01.1.6": [("BANANA", "Banana x kg", 100)],
+         "01.1.7": [("PAPA", "Papa x kg", 80)],
+         "01.1.1": [("PAN", "Pan x kg", 1500)],
+         "05.6.1": [("DET", "Detergente 750ml", 1900)]}
+BASE = ["2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12"]
+ACT = ["2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16"]
+D1, H1, D0, H0 = "2026-08-13", "2026-08-16", "2026-08-09", "2026-08-12"
+
+
+def _base(path):
+    con = conectar(path)
+    obs = []
+    for reg in REGIONES:
+        for clase, prods in DATOS.items():
+            for ean, nom, p in prods:
+                for d in BASE:
+                    obs.append((ObservacionVariedad(d, ean, "C1", float(p), nom, region=reg), clase))
+                for d in ACT:
+                    obs.append((ObservacionVariedad(d, ean, "C1", p * SUBAS[reg], nom, region=reg), clase))
+    insertar_observaciones(con, obs)
+    return con
+
+
+def test_cada_region_devuelve_su_propia_variacion():
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        for r in REGIONES:
+            v, _ = indice_region(con, D1, H1, D0, H0, r)
+            assert abs(v - (SUBAS[r] - 1) * 100) < 0.01, f"{r}: {v}"
+        con.close()
+
+
+def test_nacional_pondera_por_importancia_de_region():
+    from config.canasta import PESO_REGION
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        nac, cob, detalle = indice_nacional(con, D1, H1, D0, H0)
+        esperado = (sum(PESO_REGION[r] * (SUBAS[r] - 1) * 100 for r in REGIONES)
+                    / sum(PESO_REGION.values()))
+        assert abs(nac - esperado) < 1e-6
+        assert len(detalle) == 6
+        assert math.isclose(cob, 1.0, abs_tol=1e-9)
+        con.close()
+
+
+def test_nacional_con_una_region_faltante_renormaliza():
+    """Si falta una region no se asume cero: se excluye y se avisa."""
+    from config.canasta import PESO_REGION
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "t.db")
+        obs = []
+        for d in BASE:
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 100.0, "Banana", region="GBA"), "01.1.6"))
+        for d in ACT:
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 110.0, "Banana", region="GBA"), "01.1.6"))
+        insertar_observaciones(con, obs)
+        nac, cob, detalle = indice_nacional(con, D1, H1, D0, H0)
+        assert list(detalle) == ["GBA"]
+        assert abs(nac - 10.0) < 1e-9          # con una sola region, es esa region
+        assert abs(cob - PESO_REGION["GBA"] / sum(PESO_REGION.values())) < 1e-9
+        con.close()
+
+
+def test_suma_de_aportes_reproduce_la_division():
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        d = division_completa(con, "01", D1, H1, D0, H0, "GBA")
+        suma = sum(f.aporte_pp for f in d.clases if f.aporte_pp is not None)
+        assert abs(suma - d.variacion_pct) < 1e-9
+        con.close()
+
+
+def test_resumen_devuelve_las_12_divisiones():
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        divs = resumen_divisiones(con, D1, H1, D0, H0, "GBA")
+        assert len(divs) == 12
+        con_datos = [d for d in divs if d.variacion_pct is not None]
+        assert len(con_datos) >= 2      # al menos 01 y 05 tienen datos
+        con.close()
+
+
+def test_clases_sin_datos_no_se_asumen_cero():
+    """Una clase sin datos queda en None, no en 0.0 — si se asumiera cero
+    diluiria la variacion de la division hacia abajo."""
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        d = division_completa(con, "01", D1, H1, D0, H0, "GBA")
+        sin_datos = [f for f in d.clases if f.variacion_pct is None]
+        assert sin_datos, "el escenario de prueba deberia tener clases sin datos"
+        assert all(f.aporte_pp is None for f in sin_datos)
+        # la division debe valer 5% (la suba de GBA), no menos
+        assert abs(d.variacion_pct - 5.0) < 0.01
+        con.close()
+
+
+def test_override_reemplaza_el_valor_de_una_clase():
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        sin_override = division_completa(con, "01", D1, H1, D0, H0, "GBA")
+        con_override = division_completa(con, "01", D1, H1, D0, H0, "GBA",
+                                          overrides={"01.1.6": 50.0})
+        fruta_normal = next(f for f in sin_override.clases if f.codigo == "01.1.6")
+        fruta_manual = next(f for f in con_override.clases if f.codigo == "01.1.6")
+        assert not fruta_normal.es_manual
+        assert fruta_manual.es_manual
+        assert math.isclose(fruta_manual.variacion_pct, 50.0)
+        assert con_override.variacion_pct != sin_override.variacion_pct
+        assert con_override.tiene_manuales is True
+        assert sin_override.tiene_manuales is False
+        con.close()
+
+
+def test_override_no_modifica_la_base_de_datos():
+    """El test mas importante de esta funcionalidad: simular un valor no
+    puede dejar rastro en la base. Se verifica llamando SIN override
+    despues de haber llamado CON override, y confirmando que el resultado
+    real es exactamente el mismo que si el override nunca hubiera pasado."""
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        antes = division_completa(con, "01", D1, H1, D0, H0, "GBA")
+
+        # simular varias veces, con valores distintos cada vez
+        division_completa(con, "01", D1, H1, D0, H0, "GBA", overrides={"01.1.6": 999.0})
+        division_completa(con, "01", D1, H1, D0, H0, "GBA", overrides={"01.1.7": -50.0})
+
+        despues = division_completa(con, "01", D1, H1, D0, H0, "GBA")
+        assert math.isclose(antes.variacion_pct, despues.variacion_pct)
+        for fa, fd in zip(antes.clases, despues.clases):
+            assert fa.variacion_pct == fd.variacion_pct
+            assert not fd.es_manual
+        con.close()
+
+
+def test_override_en_indice_region():
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        v_normal, _ = indice_region(con, D1, H1, D0, H0, "GBA")
+        v_manual, _ = indice_region(con, D1, H1, D0, H0, "GBA", overrides={"01.1.6": 200.0})
+        assert v_manual > v_normal
+        con.close()

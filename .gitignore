@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Los ZIP crudos de SEPA NO van al repo: son grandes y harian crecer el
+# historial de git sin control. El workflow los guarda como artifact de
+# GitHub Actions (30 dias) para poder reprocesar si mejora el mapeo.
+datos_sepa/
+
+# Reportes generados: se regeneran cuando se quiera, no se versionan.
+# aplicacion.html en particular pesa varios MB porque embebe los datos.
+reporte_*.html
+simulador_*.html
+aplicacion.html
+
+# La base NO se versiona: crece ~37 MB por dia y GitHub bloquea archivos de
+# mas de 100 MB, asi que a los 3 dias el repositorio dejaria de funcionar.
+# Ademas git guarda una copia entera del archivo binario en cada commit.
+*.db
+*.db-journal
+
+# El respaldo del historial se hace con historico/*.csv.gz: un archivo por
+# dia, de pocos MB, que una vez escrito no se vuelve a tocar. Esos SI van al
+# repositorio — son el activo irrecuperable del proyecto (SEPA solo guarda
+# una ventana de 7 dias). Ver scripts/exportar_dia.py y scripts/reconstruir.py
+!historico/
+!historico/*.csv.gz
+
+# Registros de las corridas automaticas en Windows: son locales.
+logs/
