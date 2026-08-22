@@ -27,6 +27,7 @@ MODULOS = [
     "tests.test_zip_reader",
     "tests.test_paridad_js",
     "tests.test_consultas",
+    "tests.test_fechas",
     "tests.test_respaldo",
     "tests.test_nacional",
     "tests.test_backtest_division01",

@@ -16,7 +16,7 @@ engine/consultas.py para el detalle y el test que lo garantiza
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 import streamlit as st
@@ -29,6 +29,7 @@ from engine.consultas import (
     resumen_divisiones,
     variacion_clase,
 )
+from engine.fechas import acotar_rango, calcular_preset
 from storage.db import conectar, regiones_disponibles
 
 DB_PATH = Path("relevamiento_precios.db")
@@ -99,15 +100,22 @@ with st.sidebar:
     )
 
     if preset == "Última semana vs previa":
-        h1, d1 = d_max, d_max - timedelta(days=6)
-        h0, d0 = d1 - timedelta(days=1), d1 - timedelta(days=7)
+        d1, h1, d0, h0 = calcular_preset("semana", d_max)
     elif preset == "Mes actual vs anterior":
-        d1 = d_max.replace(day=1)
-        h1 = d_max
-        h0 = d1 - timedelta(days=1)
-        d0 = h0.replace(day=1)
+        d1, h1, d0, h0 = calcular_preset("mes", d_max)
     else:
-        d1 = h1 = h0 = d0 = d_max
+        d1, h1, d0, h0 = calcular_preset("personalizado", d_max)
+
+    # Ver engine/fechas.py: sin esto, con pocos dias cargados la app se cae
+    # con StreamlitAPIException apenas se elige un preset.
+    d1, h1, d0, h0 = acotar_rango(d1, h1, d0, h0, d_min, d_max)
+
+    if d_min == d_max:
+        st.sidebar.info(
+            "Con un solo día cargado todavía no hay nada para comparar. "
+            "Cargá al menos un día más (lo ideal es una semana) para "
+            "empezar a ver variaciones."
+        )
 
     st.markdown("**Período a analizar**")
     d1 = st.date_input("desde", d1, min_value=d_min, max_value=d_max, key="d1")
