@@ -107,12 +107,19 @@ def conectar(path: Path) -> sqlite3.Connection:
     # desde un hilo distinto al que la creo en cada re-corrida de la app.
     # Sin esto, sqlite3 tira "ProgrammingError: SQLite objects created in
     # a thread can only be used in that same thread" apenas se interactua
-    # con un widget (fue exactamente el error reportado en produccion).
-    # Es seguro en este caso porque la app de Streamlit SOLO LEE de la
-    # base — nunca escribe — y SQLite permite lecturas concurrentes sin
-    # problema; lo que no soporta bien es escritura concurrente, que acá
-    # no ocurre desde la interfaz.
+    # con un widget. Es seguro en este caso porque la app de Streamlit SOLO
+    # LEE de la base — nunca escribe — y SQLite permite lecturas
+    # concurrentes sin problema.
     con = sqlite3.connect(path, check_same_thread=False)
+    # WAL (Write-Ahead Logging): permite que lecturas y una escritura
+    # convivan sin bloquearse mutuamente. Sin esto, si dos personas entran
+    # a la app al mismo tiempo justo cuando se esta reconstruyendo la base
+    # (ver scripts/reconstruir.py y el arranque de app_streamlit.py), una
+    # puede toparse con "database is locked" — que fue exactamente lo que
+    # paso en produccion. No es la solucion completa (ver el arreglo real
+    # en app_streamlit.py, que evita que la reconstruccion se dispare mas
+    # de una vez), pero es una capa extra de seguridad barata.
+    con.execute("PRAGMA journal_mode = WAL")
     con.execute("PRAGMA foreign_keys = ON")
     _migrar(con)
     con.executescript(SCHEMA)

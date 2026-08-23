@@ -29,6 +29,7 @@ MODULOS = [
     "tests.test_consultas",
     "tests.test_fechas",
     "tests.test_threading_db",
+    "tests.test_consultas",
     "tests.test_respaldo",
     "tests.test_nacional",
     "tests.test_backtest_division01",

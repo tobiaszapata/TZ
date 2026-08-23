@@ -240,3 +240,68 @@ def test_nivel_general_reporta_cobertura_interna_de_cada_division():
         assert div01.cobertura_interna is not None
         assert 0 < div01.cobertura_interna <= 1.0
         con.close()
+
+
+def test_variacion_clase_nacional_combina_solo_regiones_con_dato():
+    """Verificado a mano: GBA +10%, Pampeana +20%, nada en las otras 4
+    regiones. El nacional tiene que ser el promedio ponderado por
+    PESO_REGION de esas DOS, renormalizado — nunca un promedio simple
+    (que le daria a Pampeana el mismo peso que a GBA) ni un pool de
+    precios sin ponderar (que sobre-representaria donde SEPA tiene mas
+    sucursales)."""
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "t.db")
+        obs = []
+        for d in ["2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12"]:
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 100.0, "Banana", region="GBA"), "01.1.6"))
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 100.0, "Banana", region="Pampeana"), "01.1.6"))
+        for d in ["2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16"]:
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 110.0, "Banana", region="GBA"), "01.1.6"))
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 120.0, "Banana", region="Pampeana"), "01.1.6"))
+        insertar_observaciones(con, obs)
+
+        from engine.consultas import variacion_clase_nacional
+        v, cob = variacion_clase_nacional(con, "01.1.6", D1, H1, D0, H0)
+
+        from config.canasta import PESO_REGION
+        esperado = (PESO_REGION["GBA"] * 10.0 + PESO_REGION["Pampeana"] * 20.0) / \
+                   (PESO_REGION["GBA"] + PESO_REGION["Pampeana"])
+        cob_esperada = (PESO_REGION["GBA"] + PESO_REGION["Pampeana"]) / sum(PESO_REGION.values())
+
+        assert math.isclose(v, esperado, rel_tol=1e-9)
+        assert math.isclose(cob, cob_esperada, rel_tol=1e-9)
+        con.close()
+
+
+def test_nivel_general_nacional_combina_medida_y_manual():
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "t.db")
+        obs = []
+        for d in ["2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12"]:
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 100.0, "Banana", region="GBA"), "01.1.6"))
+        for d in ["2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16"]:
+            obs.append((ObservacionVariedad(d, "BANANA", "C1", 110.0, "Banana", region="GBA"), "01.1.6"))
+        insertar_observaciones(con, obs)
+
+        from engine.consultas import nivel_general_nacional
+        r = nivel_general_nacional(con, D1, H1, D0, H0, overrides_division={"08": 3.0})
+
+        div01 = next(f for f in r.divisiones if f.codigo == "01")
+        div08 = next(f for f in r.divisiones if f.codigo == "08")
+        assert div01.fuente == "medida"
+        assert div08.fuente == "manual"
+
+        esperado = (div01.peso * div01.variacion_pct + div08.peso * 3.0) / (div01.peso + div08.peso)
+        assert math.isclose(r.variacion_pct, esperado, rel_tol=1e-6)
+        con.close()
+
+
+def test_nivel_general_nacional_sin_overrides_devuelve_solo_lo_medido():
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        from engine.consultas import nivel_general_nacional
+        r = nivel_general_nacional(con, D1, H1, D0, H0)
+        assert r.variacion_pct is not None
+        # ninguna division deberia venir marcada como manual
+        assert all(f.fuente != "manual" for f in r.divisiones)
+        con.close()

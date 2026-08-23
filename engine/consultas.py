@@ -283,3 +283,174 @@ def nivel_general(con, desde, hasta, desde_base, hasta_base, region="GBA",
         cobertura=agregado.peso_cubierto / peso_total_pais if peso_total_pais else 0.0,
         divisiones=filas,
     )
+
+
+# ==========================================================================
+# VISTA NACIONAL — sin desglose regional visible
+#
+# Lo de arriba (division_completa, indice_region, nivel_general) trabaja
+# SIEMPRE con una region a la vez, porque asi lo exige la metodologia de
+# INDEC: los ponderadores son regionales, no hay un "peso nacional" propio
+# publicado para cada categoria. Pero mostrar el desglose por region no le
+# interesa a todo el mundo — para alguien que solo quiere el numero del
+# pais, es ruido.
+#
+# Las funciones de aca abajo COMBINAN las 6 regiones puertas adentro (nunca
+# se saltea el paso metodologicamente correcto) y devuelven un unico
+# resultado nacional. La region deja de ser un dato que el usuario tiene
+# que elegir; es un detalle de implementacion.
+# ==========================================================================
+
+def peso_nacional_clase(codigo: str) -> float:
+    """Peso nacional de una clase: la suma, en las 6 regiones, del peso que
+    tiene esa clase en cada region multiplicado por la importancia de esa
+    region en el pais. Es la forma correcta de "nacionalizar" un peso que
+    solo existe publicado a nivel regional (Metodologia N32, Cuadro 6)."""
+    return sum(PESO_REGION[r] * CANASTA[codigo].peso(r) for r in PESO_REGION) * 100
+
+
+def peso_nacional_division(codigo: str) -> float:
+    """Igual que `peso_nacional_clase` pero para una division completa."""
+    return sum(PESO_REGION[r] * CANASTA[codigo].peso(r) for r in PESO_REGION) * 100
+
+
+def _combinar_regiones(valores: dict[str, float], pesos: dict[str, float]) -> tuple[float | None, float]:
+    """Combina valores regionales con sus pesos, excluyendo las regiones
+    sin dato y renormalizando — el mismo criterio de siempre, aplicado al
+    eje geografico en vez de al eje de categorias."""
+    comunes = set(valores) & set(pesos)
+    if not comunes:
+        return None, 0.0
+    num = sum(pesos[r] * valores[r] for r in comunes)
+    den = sum(pesos[r] for r in comunes)
+    peso_total = sum(pesos.values())
+    return (num / den if den else None), (den / peso_total if peso_total else 0.0)
+
+
+def variacion_clase_nacional(con, clase: str, desde, hasta, desde_base, hasta_base):
+    """Variacion NACIONAL de una clase: la misma clase, calculada en cada
+    una de las 6 regiones (con sus propios precios y su propio peso dentro
+    de la region) y combinada con la importancia relativa de cada region.
+    No es un promedio simple entre regiones ni un pool de precios sin
+    ponderar — ambas formas estarian mal (la primera le daria a Cuyo el
+    mismo peso que a GBA; la segunda sobre-representaria las regiones
+    donde SEPA tiene mas sucursales, que no son las mismas donde vive mas
+    gente)."""
+    valores = {}
+    for region in PESO_REGION:
+        res, _ = variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region)
+        if res is not None:
+            valores[region] = res.variacion_pct
+    return _combinar_regiones(valores, PESO_REGION)
+
+
+def division_completa_nacional(con, div_codigo, desde, hasta, desde_base, hasta_base,
+                               overrides_clase: dict[str, float] | None = None) -> ResultadoDivision:
+    """Version nacional de `division_completa`: cada clase de la division
+    se calcula a nivel pais (combinando regiones), y despues se agregan
+    las clases con el peso nacional de cada una."""
+    overrides_clase = overrides_clase or {}
+    div = CANASTA[div_codigo]
+    filas: list[FilaClase] = []
+    num = den = 0.0
+    tiene_manuales = False
+
+    for clase in clases_de_division(div_codigo):
+        if clase.cobertura != Cobertura.MEDIDA_SEPA:
+            continue
+        peso = peso_nacional_clase(clase.codigo)
+
+        if clase.codigo in overrides_clase:
+            v = overrides_clase[clase.codigo]
+            es_manual = True
+            tiene_manuales = True
+        else:
+            v, _cob = variacion_clase_nacional(con, clase.codigo, desde, hasta, desde_base, hasta_base)
+            es_manual = False
+
+        filas.append(FilaClase(clase.codigo, clase.nombre, peso, v, 0, es_manual=es_manual))
+        if v is not None:
+            num += peso * v
+            den += peso
+
+    variacion = num / den if den else None
+    for f in filas:
+        f.aporte_pp = (f.peso / den * f.variacion_pct) if (den and f.variacion_pct is not None) else None
+
+    peso_total = sum(peso_nacional_clase(c.codigo) for c in clases_de_division(div_codigo)
+                     if c.cobertura == Cobertura.MEDIDA_SEPA)
+    return ResultadoDivision(
+        codigo=div_codigo, nombre=div.nombre, peso=peso_nacional_division(div_codigo),
+        variacion_pct=variacion,
+        cobertura=(den / peso_total) if peso_total else 0.0,
+        clases=filas,
+        tiene_manuales=tiene_manuales,
+    )
+
+
+def resumen_divisiones_nacional(con, desde, hasta, desde_base, hasta_base,
+                                overrides_clase: dict[str, float] | None = None):
+    """Version nacional de `resumen_divisiones` — las 12 divisiones, cada
+    una calculada a nivel pais."""
+    salida = []
+    for div in divisiones():
+        tiene = any(c.cobertura == Cobertura.MEDIDA_SEPA for c in clases_de_division(div.codigo))
+        if tiene:
+            salida.append(division_completa_nacional(con, div.codigo, desde, hasta,
+                                                      desde_base, hasta_base, overrides_clase))
+        else:
+            salida.append(ResultadoDivision(
+                div.codigo, div.nombre, peso_nacional_division(div.codigo), None, 0.0, []))
+    return salida
+
+
+def nivel_general_nacional(con, desde, hasta, desde_base, hasta_base,
+                           overrides_clase: dict[str, float] | None = None,
+                           overrides_division: dict[str, float] | None = None) -> ResultadoNivelGeneral:
+    """Version nacional de `nivel_general`: combina las 12 divisiones a
+    nivel pais (sin exponer ninguna region), con la misma logica de
+    overrides para poner a mano el dato de una categoria que SEPA no mide
+    (Comunicacion, Transporte, Vivienda, Prendas, Educacion, Restaurantes)."""
+    overrides_clase = overrides_clase or {}
+    overrides_division = overrides_division or {}
+
+    filas: list[FilaDivision] = []
+    valores: dict[str, float] = {}
+
+    for div in divisiones():
+        peso = peso_nacional_division(div.codigo)
+
+        if div.codigo in overrides_division:
+            v = overrides_division[div.codigo]
+            fuente = "manual"
+            cobertura_interna = None
+        else:
+            tiene_cobertura = any(c.cobertura == Cobertura.MEDIDA_SEPA
+                                  for c in clases_de_division(div.codigo))
+            if tiene_cobertura:
+                res = division_completa_nacional(con, div.codigo, desde, hasta,
+                                                  desde_base, hasta_base, overrides_clase)
+                v = res.variacion_pct
+                fuente = "medida" if v is not None else "sin_dato"
+                cobertura_interna = res.cobertura if v is not None else None
+            else:
+                v = None
+                fuente = "sin_dato"
+                cobertura_interna = None
+
+        filas.append(FilaDivision(div.codigo, div.nombre, peso, v, fuente, cobertura_interna))
+        if v is not None:
+            valores[div.codigo] = v
+
+    if not valores:
+        return ResultadoNivelGeneral(None, 0.0, filas)
+
+    pesos = {cod: peso_nacional_division(cod) for cod in valores}
+    agregado = laspeyres(valores, pesos)
+    peso_total_pais = sum(peso_nacional_division(d.codigo) for d in divisiones())
+
+    return ResultadoNivelGeneral(
+        variacion_pct=agregado.variacion_pct,
+        cobertura=agregado.peso_cubierto / peso_total_pais if peso_total_pais else 0.0,
+        divisiones=filas,
+    )
