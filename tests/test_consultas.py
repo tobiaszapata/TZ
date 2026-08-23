@@ -305,3 +305,51 @@ def test_nivel_general_nacional_sin_overrides_devuelve_solo_lo_medido():
         # ninguna division deberia venir marcada como manual
         assert all(f.fuente != "manual" for f in r.divisiones)
         con.close()
+
+
+def test_camino_rapido_da_lo_mismo_que_el_camino_original():
+    """La capa de rendimiento (valores_medidos_nacional +
+    resumen_divisiones_desde_valores + nivel_general_desde_divisiones) NO
+    puede dar un numero distinto al camino original — separar 'caro' de
+    'barato' es una optimizacion, no un cambio de metodologia. Si algun
+    dia se desincroniza, este test tiene que fallar."""
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        from engine.consultas import (
+            nivel_general_nacional, resumen_divisiones_nacional,
+            valores_medidos_nacional, resumen_divisiones_desde_valores,
+            nivel_general_desde_divisiones,
+        )
+        ov_clase = {"01.1.6": 12.5}
+        ov_div = {"08": 2.0}
+
+        r_original = nivel_general_nacional(con, D1, H1, D0, H0,
+                                            overrides_clase=ov_clase, overrides_division=ov_div)
+        divs_original = resumen_divisiones_nacional(con, D1, H1, D0, H0, overrides_clase=ov_clase)
+
+        valores = valores_medidos_nacional(con, D1, H1, D0, H0)
+        divs_rapido = resumen_divisiones_desde_valores(valores, overrides_clase=ov_clase)
+        r_rapido = nivel_general_desde_divisiones(divs_rapido, overrides_division=ov_div)
+
+        assert math.isclose(r_original.variacion_pct, r_rapido.variacion_pct, rel_tol=1e-9)
+        assert math.isclose(r_original.cobertura, r_rapido.cobertura, rel_tol=1e-9)
+        for do, dr in zip(divs_original, divs_rapido):
+            assert do.codigo == dr.codigo
+            if do.variacion_pct is None:
+                assert dr.variacion_pct is None
+            else:
+                assert math.isclose(do.variacion_pct, dr.variacion_pct, rel_tol=1e-9)
+        con.close()
+
+
+def test_valores_medidos_nacional_no_depende_de_overrides():
+    """Confirma la premisa que hace valido el cacheo: los valores medidos
+    son los mismos sin importar que overrides se vayan a aplicar despues
+    (porque se calculan ANTES de aplicar ninguno)."""
+    with tempfile.TemporaryDirectory() as t:
+        con = _base(Path(t) / "t.db")
+        from engine.consultas import valores_medidos_nacional
+        v1 = valores_medidos_nacional(con, D1, H1, D0, H0)
+        v2 = valores_medidos_nacional(con, D1, H1, D0, H0)
+        assert v1 == v2
+        con.close()

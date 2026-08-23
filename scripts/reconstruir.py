@@ -43,23 +43,58 @@ def reconstruir(borrar: bool = False, verboso: bool = True) -> int:
 
     con = conectar(DB_PATH)
     total = 0
+    total_nombres = 0
     for archivo in sorted(CARPETA.glob("*.csv.gz")):
         with gzip.open(archivo, "rt", encoding="utf-8") as fh:
             lector = csv.DictReader(fh)
-            filas = [(r["fecha"], r["ean_o_id"], r["clase_codigo"],
-                      r["comercio"], float(r["precio"]), r["region"])
-                     for r in lector]
+            # Compatibilidad con respaldos viejos: los archivos exportados
+            # antes de sumar el nombre de producto (ver
+            # scripts/exportar_dia.py) tienen 6 columnas, sin
+            # "nombre_producto". Detectarlo por encabezado, no por
+            # posicion, para no romper si el orden cambia el dia de manana.
+            tiene_nombre = lector.fieldnames and "nombre_producto" in lector.fieldnames
+
+            filas: list[tuple] = []
+            nombres: list[tuple] = []
+            for r in lector:
+                filas.append((r["fecha"], r["ean_o_id"], r["clase_codigo"],
+                             r["comercio"], float(r["precio"]), r["region"]))
+                if tiene_nombre and r.get("nombre_producto"):
+                    nombres.append((r["ean_o_id"], r["nombre_producto"]))
+
         con.executemany(
             """INSERT OR IGNORE INTO precios_raw
                (fecha, ean_o_id, clase_codigo, comercio, precio, region)
                VALUES (?, ?, ?, ?, ?, ?)""", filas)
+
+        if nombres:
+            con.executemany(
+                """INSERT INTO productos (ean_o_id, nombre_producto, actualizado_en)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(ean_o_id) DO UPDATE SET
+                       nombre_producto = excluded.nombre_producto,
+                       actualizado_en = excluded.actualizado_en""",
+                nombres,
+            )
+            total_nombres += len(nombres)
+
         con.commit()
         total += len(filas)
         if verboso:
-            print(f"  {archivo.name}  {len(filas):>8,} filas")
+            extra = "" if tiene_nombre else "  (respaldo viejo, sin nombres — ver aviso al final)"
+            print(f"  {archivo.name}  {len(filas):>8,} filas{extra}")
     con.close()
     if verboso:
         print(f"\nListo: {total:,} filas reconstruidas en {DB_PATH}")
+        if total_nombres == 0:
+            print(
+                "\nAVISO: ninguno de los respaldos tenia nombres de producto guardados "
+                "(son de antes de este arreglo). El desglose de productos va a mostrar "
+                "codigos en vez de nombres para esos dias, hasta que los reexportes:\n"
+                "  python -m scripts.exportar_dia --rehacer\n"
+                "corrido en la maquina donde tengas la base ORIGINAL (la que SI tiene "
+                "los nombres, porque los cargo directo de SEPA)."
+            )
     return total
 
 

@@ -81,3 +81,14 @@ def test_preset_desconocido_no_rompe_devuelve_un_solo_dia():
     d_max = date(2026, 8, 20)
     resultado = calcular_preset("personalizado", d_max)
     assert resultado == (d_max, d_max, d_max, d_max)
+
+
+def test_personalizado_arranca_todo_en_el_ultimo_dia():
+    """Revertido a pedido: 'Personalizado' arranca con las cuatro fechas en
+    el último día disponible, y la persona elige a mano tanto 'período a
+    analizar' como 'comparado contra' — no tiene sentido, para el caso de
+    uso real (comparar un mes puntual contra otro), que 'período a
+    analizar' arranque cubriendo todo el historial cargado."""
+    d_max = date(2026, 8, 20)
+    resultado = calcular_preset("personalizado", d_max)
+    assert resultado == (d_max, d_max, d_max, d_max)

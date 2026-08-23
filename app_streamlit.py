@@ -7,27 +7,25 @@ IMPORTANTE — ESTE ARCHIVO NO HACE CUENTAS. Todo el calculo vive en
 engine/consultas.py, testeado sin necesidad de levantar Streamlit.
 
 SIEMPRE MUESTRA EL NIVEL NACIONAL. El sistema calcula por region por
-dentro (porque los ponderadores de INDEC son regionales — ver
-engine/consultas.py::peso_nacional_clase), pero la interfaz no expone esa
-region: combina las 6 automaticamente y solo muestra el resultado pais.
-Es una decision de producto, no una limitacion — a quien usa la app no le
-interesa el desglose geografico, le interesa el numero nacional.
+dentro (los ponderadores de INDEC son regionales), pero la interfaz no
+expone la region: combina las 6 automaticamente y solo muestra el pais.
 
-"NIVEL GENERAL" SOLO APARECE CUANDO HAY AL MENOS UN VALOR MANUAL CARGADO
-para una division que SEPA no mide (Comunicacion, Transporte, Vivienda,
-Prendas, Educacion, Restaurantes). Sin eso, no tiene sentido mostrar un
-"nivel general" que en realidad seria solo el de las divisiones medidas
-maquillado de "general" — mejor mostrar directamente el detalle por
-categoria, que es lo que se puede afirmar con SEPA solo.
+"NIVEL GENERAL" SOLO APARECE CUANDO HAY AL MENOS UN VALOR MANUAL DE
+DIVISION cargado (para las que SEPA no mide: Comunicacion, Transporte,
+Vivienda, Prendas, Educacion, Restaurantes). Sin eso, se muestra
+directamente el detalle por categoria/subcategoria/producto.
 
-MODO SIMULACION: permite pisar el valor de una subcategoria o de una
-division entera (tipicamente las que SEPA no mide) con un numero propio.
-Esto NUNCA toca la base de datos — vive en `st.session_state`, que en
-Streamlit es propio de CADA sesion de navegador. Dos personas abriendo el
-mismo link tienen cada una su propio `st.session_state`: lo que uno edita
-no lo ve ni le afecta al otro, y ninguno de los dos modifica el dato real
-que ve un tercero que entre despues. Ver el test que lo garantiza:
-tests/test_consultas.py::test_override_no_modifica_la_base_de_datos.
+RENDIMIENTO: la parte cara (leer la base y calcular la variacion de cada
+subcategoria medida) se cachea por rango de fechas con `@st.cache_data` y
+NO depende de los overrides — asi que tildar una casilla o escribir un
+valor en modo simulacion no vuelve a golpear la base, solo hace la
+combinacion (instantanea). Ver engine/consultas.py, seccion "CAPA DE
+RENDIMIENTO", y el test que garantiza que da lo mismo que el camino
+directo: tests/test_consultas.py::test_camino_rapido_da_lo_mismo_que_el_camino_original.
+
+MODO SIMULACION: session_state es POR SESION DE NAVEGADOR — cada persona
+que abre el link tiene el suyo, aislado del de cualquier otra. Nunca toca
+la base de datos. Ver tests/test_consultas.py::test_override_no_modifica_la_base_de_datos.
 """
 
 from __future__ import annotations
@@ -38,8 +36,9 @@ from pathlib import Path
 import streamlit as st
 
 from engine.consultas import (
-    nivel_general_nacional,
-    resumen_divisiones_nacional,
+    nivel_general_desde_divisiones,
+    resumen_divisiones_desde_valores,
+    valores_medidos_nacional,
     variacion_clase,
 )
 from engine.fechas import acotar_rango, calcular_preset
@@ -52,21 +51,10 @@ st.set_page_config(page_title="Relevamiento de Precios", layout="wide")
 
 @st.cache_resource
 def _con():
-    # TODA la logica de "si no existe la base, reconstruirla desde el
-    # historico" vive DENTRO de esta funcion cacheada, no afuera.
-    #
-    # POR QUE ESTO IMPORTA: Streamlit Cloud puede atender varias sesiones
-    # (personas) al mismo tiempo. Si el chequeo "existe la base?" y la
-    # reconstruccion estuvieran afuera de un cache, CADA sesion nueva lo
-    # correria por su cuenta — y si dos entran justo en el momento en que
-    # la base todavia no existe, las dos arrancan a escribirla a la vez:
-    # eso fue exactamente "OperationalError: database is locked" en
-    # produccion.
-    #
-    # `@st.cache_resource` resuelve esto de raiz: Streamlit garantiza que
-    # el CUERPO de esta funcion se ejecuta como maximo una vez (incluso con
-    # llamadas concurrentes desde sesiones distintas) y todas comparten el
-    # mismo resultado.
+    # `@st.cache_resource` garantiza que el CUERPO de esta funcion se
+    # ejecuta como maximo una vez, incluso con sesiones concurrentes — asi
+    # la reconstruccion desde historico/ nunca corre dos veces en paralelo
+    # (lo que causaba "database is locked" en produccion).
     if not DB_PATH.exists():
         historico = Path("historico")
         respaldos = sorted(historico.glob("*.csv.gz")) if historico.exists() else []
@@ -82,6 +70,25 @@ def _rango_disponible():
         return None, None, 0
     cur = _con().execute("SELECT MIN(fecha), MAX(fecha), COUNT(DISTINCT fecha) FROM precios_raw")
     return cur.fetchone()
+
+
+@st.cache_data(ttl=600)
+def _valores_medidos_cacheado(_con_obj, D1, H1, D0, H0):
+    # El prefijo "_" en `_con_obj` le dice a Streamlit que NO incluya este
+    # argumento en la clave de cache (no se puede "hashear" una conexion
+    # de base de datos, y tampoco hace falta: si el rango de fechas es el
+    # mismo, el resultado es el mismo sin importar la conexion).
+    #
+    # Esta es la parte CARA (golpea la base, ~19 subcategorias x 6
+    # regiones). Como los overrides NO son parametros de esta funcion, se
+    # sigue usando el mismo resultado cacheado sin importar cuantas veces
+    # se edite un valor manual en modo simulacion.
+    return valores_medidos_nacional(_con_obj, D1, H1, D0, H0)
+
+
+@st.cache_data(ttl=600)
+def _productos_de_clase_cacheado(_con_obj, cod, D1, H1, D0, H0):
+    return variacion_clase(_con_obj, cod, D1, H1, D0, H0, region=None)
 
 
 def _color(v):
@@ -106,8 +113,6 @@ if not fmin:
 st.info(f"Datos disponibles: **{fmin}** a **{fmax}** · {ndias} días cargados")
 
 # --------------------------------------------------------- estado: overrides
-# session_state es POR SESION DE NAVEGADOR — cada persona que abre el link
-# tiene el suyo propio. Ver el docstring de arriba del archivo.
 if "overrides_clase" not in st.session_state:
     st.session_state.overrides_clase = {}      # {codigo_clase: valor_pct}
 if "overrides_division" not in st.session_state:
@@ -122,13 +127,16 @@ with st.sidebar:
 
     preset_sel = st.radio(
         "Comparación rápida",
-        ["Última semana vs previa", "Mes actual vs anterior", "Personalizado"],
+        ["Última semana vs previa", "Mes actual vs anterior", "Personalizado (ver todo lo cargado)"],
         index=0,
     )
     clave_preset = {"Última semana vs previa": "semana",
                     "Mes actual vs anterior": "mes",
-                    "Personalizado": "personalizado"}[preset_sel]
+                    "Personalizado (ver todo lo cargado)": "personalizado"}[preset_sel]
 
+    # "personalizado" recibe d_min para arrancar mostrando TODO el período
+    # cargado en "período a analizar" — la persona ajusta despues
+    # "comparado contra" a lo que le interese.
     d1, h1, d0, h0 = calcular_preset(clave_preset, d_max)
     d1, h1, d0, h0 = acotar_rango(d1, h1, d0, h0, d_min, d_max)
 
@@ -170,19 +178,20 @@ ov_division = st.session_state.overrides_division if modo_simulacion else {}
 
 if modo_simulacion:
     st.warning(
-        "**Modo simulación activo.** Los valores marcados con ✏️ son manuales, no medidos. "
-        "Es un ejercicio de \"¿qué pasaría si…?\" — la base de datos real no se toca, y esto "
-        "solo lo ves vos: cada persona que entra al link tiene su propia simulación, "
-        "independiente de la de cualquier otra. Desactivá el modo para ver únicamente "
-        "los datos relevados."
+        "**Modo simulación activo.** Tildá \"usar valor manual\" en la fila que quieras editar "
+        "para que aparezca el casillero — mientras no la tildes, se sigue mostrando el dato "
+        "medido. Los valores con ✏️ son manuales, no medidos: es un ejercicio de "
+        "\"¿qué pasaría si…?\", la base de datos real no se toca, y esto solo lo ves vos — "
+        "cada persona que entra al link tiene su propia simulación, independiente de la de "
+        "cualquier otra."
     )
 
-# ---------------------------------------------------------------- nivel general
-# Se calcula siempre (barato), pero SOLO SE MUESTRA si hay al menos un
-# valor manual de division cargado — ver el docstring del archivo.
-r = nivel_general_nacional(_con(), D1, H1, D0, H0,
-                           overrides_clase=ov_clase, overrides_division=ov_division)
+# ---------------------------------------------------------------- calculo (rapido)
+valores = _valores_medidos_cacheado(_con(), D1, H1, D0, H0)
+divs_detalle = resumen_divisiones_desde_valores(valores, overrides_clase=ov_clase)
+r = nivel_general_desde_divisiones(divs_detalle, overrides_division=ov_division)
 
+# ---------------------------------------------------------------- nivel general
 if ov_division:
     st.header("Nivel general")
     st.caption(
@@ -197,28 +206,33 @@ if ov_division:
     )
 else:
     st.caption(
-        "💡 El **nivel general** aparece acá arriba apenas cargues, en modo simulación, "
-        "el dato de alguna división que SEPA no mide (por ejemplo Comunicación). "
-        "Mientras tanto, mirá el detalle por categoría de abajo."
+        "💡 El **nivel general** aparece acá arriba apenas tildes \"usar valor manual\" en "
+        "alguna división que SEPA no mide (por ejemplo Comunicación), más abajo. Mientras "
+        "tanto, mirá el detalle por categoría."
     )
 
 # ---------------------------------------------------------------- 12 divisiones
 st.header("Las 12 divisiones de INDEC")
 st.caption(
     "Nivel nacional. Las que SEPA no releva (Comunicación, Transporte, Vivienda, Prendas, "
-    "Educación, Restaurantes) se pueden completar a mano en modo simulación."
+    "Educación, Restaurantes) se pueden completar a mano en modo simulación, tildando "
+    "\"usar valor manual\"."
 )
 
 mostrar_edicion = modo_simulacion
 
-encabezado = st.columns([2.6, 0.9, 1.1, 1.6] if mostrar_edicion else [2.6, 0.9, 1.1, 1.8])
+encabezado = st.columns([2.6, 0.9, 1.1, 0.9, 1.4] if mostrar_edicion else [2.6, 0.9, 1.1, 1.8])
 encabezado[0].markdown("**División**")
 encabezado[1].markdown("**Peso**")
 encabezado[2].markdown("**Variación**")
-encabezado[3].markdown("**Poner valor manual**" if mostrar_edicion else "**Estado**")
+if mostrar_edicion:
+    encabezado[3].markdown("**Usar valor manual**")
+    encabezado[4].markdown("**Valor (%)**")
+else:
+    encabezado[3].markdown("**Estado**")
 
 for f in r.divisiones:
-    cols = st.columns([2.6, 0.9, 1.1, 1.6] if mostrar_edicion else [2.6, 0.9, 1.1, 1.8])
+    cols = st.columns([2.6, 0.9, 1.1, 0.9, 1.4] if mostrar_edicion else [2.6, 0.9, 1.1, 1.8])
     cols[0].write(f"**{f.codigo}** {f.nombre}")
     cols[1].write(f"{f.peso:.2f}%")
 
@@ -234,19 +248,23 @@ for f in r.divisiones:
         cols[3].write(etiqueta)
         continue
 
+    # ORDEN DE LA INTERACCION, a proposito: primero se tilda "usar", y
+    # RECIEN AHI aparece el casillero para escribir el numero. Antes los
+    # dos controles estaban uno al lado del otro sin orden claro, y no
+    # quedaba obvio que hacia falta hacer las dos cosas.
     actual = st.session_state.overrides_division.get(f.codigo)
-    with cols[3]:
-        sub = st.columns([2, 1])
-        nuevo = sub[0].number_input(
-            "valor %", value=actual if actual is not None else 0.0,
-            step=0.1, format="%.2f", key=f"ovdiv_{f.codigo}",
-            label_visibility="collapsed",
-        )
-        usar = sub[1].checkbox("usar", value=(actual is not None), key=f"chkdiv_{f.codigo}")
+    usar = cols[3].checkbox("usar valor manual", value=(actual is not None),
+                            key=f"chkdiv_{f.codigo}", label_visibility="collapsed")
     if usar:
+        nuevo = cols[4].number_input(
+            "valor %", value=actual if actual is not None else 0.0,
+            step=0.1, format="%.2f", key=f"ovdiv_{f.codigo}", label_visibility="collapsed",
+        )
         st.session_state.overrides_division[f.codigo] = nuevo
-    elif f.codigo in st.session_state.overrides_division:
-        del st.session_state.overrides_division[f.codigo]
+    else:
+        cols[4].caption("(dato medido)" if f.fuente != "sin_dato" else "(sin dato)")
+        if f.codigo in st.session_state.overrides_division:
+            del st.session_state.overrides_division[f.codigo]
 
     if f.fuente == "medida" and f.cobertura_interna is not None and f.cobertura_interna < 0.5:
         st.caption(
@@ -262,8 +280,6 @@ st.caption("Cada división medida se abre para ver sus subcategorías (nivel nac
            "subcategoría para ver los productos. La columna *aporte* suma la variación de la "
            "división.")
 
-divs_detalle = resumen_divisiones_nacional(_con(), D1, H1, D0, H0, overrides_clase=ov_clase)
-
 for d in divs_detalle:
     if not d.clases:
         continue  # sin ninguna clase medida: ya esta arriba, en la tabla de 12 divisiones
@@ -276,16 +292,17 @@ for d in divs_detalle:
     with st.expander(etiqueta, expanded=(d.codigo == "01" and tiene)):
         st.caption(f"Cobertura de la división: {d.cobertura:.0%} del peso medible por SEPA")
 
-        cabecera = st.columns([3, 1, 1.2, 1, 2] if mostrar_edicion else [3, 1, 1.2, 1])
+        cabecera = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
         cabecera[0].markdown("**Subcategoría**")
         cabecera[1].markdown("**Peso oficial**")
         cabecera[2].markdown("**Variación**")
         cabecera[3].markdown("**Aporte pp**")
         if mostrar_edicion:
-            cabecera[4].markdown("**Poner valor manual**")
+            cabecera[4].markdown("**Usar manual**")
+            cabecera[5].markdown("**Valor (%)**")
 
         for f in d.clases:
-            cols = st.columns([3, 1, 1.2, 1, 2] if mostrar_edicion else [3, 1, 1.2, 1])
+            cols = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
             cols[0].write(f"**{f.codigo}** {f.nombre}")
             cols[1].write(f"{f.peso:.2f}%")
             texto_var = _color(f.variacion_pct) + (" ✏️" if f.es_manual else "")
@@ -295,18 +312,17 @@ for d in divs_detalle:
             if mostrar_edicion:
                 clave = f.codigo
                 actual = st.session_state.overrides_clase.get(clave)
-                with cols[4]:
-                    sub = st.columns([2, 1])
-                    nuevo = sub[0].number_input(
-                        "valor %", value=actual if actual is not None else 0.0,
-                        step=0.1, format="%.2f", key=f"ovcls_{clave}",
-                        label_visibility="collapsed",
-                    )
-                    usar = sub[1].checkbox("usar", value=(actual is not None), key=f"chkcls_{clave}")
+                usar = cols[4].checkbox("usar", value=(actual is not None),
+                                        key=f"chkcls_{clave}", label_visibility="collapsed")
                 if usar:
+                    nuevo = cols[5].number_input(
+                        "valor %", value=actual if actual is not None else 0.0,
+                        step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
+                    )
                     st.session_state.overrides_clase[clave] = nuevo
-                elif clave in st.session_state.overrides_clase:
-                    del st.session_state.overrides_clase[clave]
+                else:
+                    if clave in st.session_state.overrides_clase:
+                        del st.session_state.overrides_clase[clave]
 
         st.markdown("")
         medidas = [f for f in d.clases if f.variacion_pct is not None]
@@ -318,16 +334,14 @@ for d in divs_detalle:
             )
             if elegida != "(ninguna)":
                 cod = elegida.split()[0]
-                # Aca SI se pool-ea sin distinguir region (region=None): es
+                # Pool nacional sin distinguir region (region=None): es
                 # una vista exploratoria de "que producto mueve la
-                # subcategoria", no el numero oficial de arriba (que ya
-                # esta bien ponderado por region). Mismo criterio que el
-                # "peso proxy" de siempre: sirve para explicar, no para
-                # citar como oficial.
-                res, drivers = variacion_clase(_con(), cod, D1, H1, D0, H0, region=None)
+                # subcategoria", no el numero oficial de arriba.
+                res, drivers = _productos_de_clase_cacheado(_con(), cod, D1, H1, D0, H0)
                 if res:
                     st.dataframe(
                         [{"Producto": p.nombre_producto,
+                          "Código": p.ean_o_id,
                           "Variación": f"{p.variacion_pct:+.1f}%",
                           "Peso*": f"{p.peso_proxy_pct:.1f}%",
                           "Aporte pp": f"{p.incidencia_aproximada_pp:+.2f}"}
@@ -338,7 +352,10 @@ for d in divs_detalle:
                         "\\* El peso por producto es una **aproximación** (participación en las "
                         "observaciones, de todo el país sin distinguir región): INDEC no publica "
                         "ponderadores por debajo de la categoría. Sirve para ver qué producto "
-                        "mueve qué, no como peso oficial."
+                        "mueve qué, no como peso oficial. · La columna **Código** es el "
+                        "identificador con el que se cargó el producto (normalmente el código de "
+                        "barras) — sirve para verificar contra la fuente original si un valor "
+                        "llama la atención."
                     )
                 else:
                     st.caption("Sin productos comparables entre los dos períodos elegidos.")

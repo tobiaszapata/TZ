@@ -29,7 +29,14 @@ def calcular_preset(preset: str, d_max: date) -> tuple[date, date, date, date]:
     """Devuelve (desde, hasta, desde_base, hasta_base) para un preset dado,
     SIN tener en cuenta todavía cuántos días hay realmente disponibles —
     eso lo resuelve `acotar_rango` a continuación. Separar los dos pasos
-    permite testear cada uno por separado."""
+    permite testear cada uno por separado.
+
+    "personalizado" arranca con las cuatro fechas en el último día
+    disponible: la persona elige a mano tanto "período a analizar" como
+    "comparado contra". Se probó que "período a analizar" arrancara
+    cubriendo todo el rango cargado, pero no tenía sentido para el caso de
+    uso real (comparar un mes puntual contra otro mes puntual, no "todo"
+    contra un mes) — se volvió a esta versión más simple a pedido."""
     if preset == "semana":
         hasta, desde = d_max, d_max - timedelta(days=6)
         hasta_base, desde_base = desde - timedelta(days=1), desde - timedelta(days=7)

@@ -38,10 +38,11 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import zipfile
 from pathlib import Path
 
 from collectors.sepa.ingesta import (
-    observaciones, procesar_directorio_fecha, procesar_zip)
+    fecha_desde_zip, observaciones, procesar_directorio_fecha, procesar_zip)
 from collectors.sepa.parser import parsear_csv
 from storage.db import conectar, insertar_observaciones, registrar_corrida
 
@@ -177,16 +178,41 @@ def main() -> None:
             print(f"  (detectados {len(zips)} archivos ZIP)")
         print(f"== Carga por lote: {len(archivos)} archivos de {args.carpeta} ==\n")
         con = conectar(DB_PATH)
-        cargados, salteados = 0, []
+
+        # Chequeo BARATO de que fechas ya estan en la base, ANTES de tocar
+        # el archivo pesado. Sin esto, correr este comando de nuevo sobre
+        # una carpeta con archivos ya cargados repetia el procesamiento
+        # completo (streaming de ~14,5 millones de filas por archivo) solo
+        # para terminar insertando 0 filas nuevas — varios minutos tirados
+        # por archivo, sin ningun resultado. `fecha_desde_zip`/el nombre de
+        # la carpeta son gratis (no descomprimen nada); consultar que fechas
+        # ya estan en la base es una sola consulta chica. Recien si la
+        # fecha NO esta, se paga el costo real de procesar el archivo.
+        from scripts.exportar_dia import dias_en_base
+        ya_cargadas = set(dias_en_base(con))
+
+        cargados, ya_estaban, salteados = 0, [], []
         for p in archivos:
-            # la fecha sale del nombre; si no esta, procesar_zip la deduce
-            # de la carpeta interna del ZIP (SEPA la incluye ahi)
             fecha = fecha_desde_nombre(p.name)
+            if not fecha and p.suffix.lower() == ".zip":
+                try:
+                    with zipfile.ZipFile(p) as z:
+                        fecha = fecha_desde_zip(z)
+                except (zipfile.BadZipFile, OSError):
+                    fecha = None
+
+            if fecha and fecha in ya_cargadas:
+                ya_estaban.append(fecha)
+                continue
+
             try:
                 cargar_archivo(con, p, fecha)
                 cargados += 1
             except Exception as exc:
                 print(f"  {p.name}: ERROR — {exc}", file=sys.stderr)
+
+        if ya_estaban:
+            print(f"Ya estaban en la base, no se re-procesaron: {sorted(ya_estaban)}")
         print(f"\nListo: {cargados} archivos cargados.")
         if salteados:
             print(f"Salteados (sin fecha reconocible en el nombre): {salteados}")

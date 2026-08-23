@@ -29,6 +29,8 @@ MODULOS = [
     "tests.test_consultas",
     "tests.test_fechas",
     "tests.test_threading_db",
+    "tests.test_correr_dia_incremental",
+    "tests.test_respaldo_nombres",
     "tests.test_consultas",
     "tests.test_respaldo",
     "tests.test_nacional",

@@ -44,7 +44,7 @@ from storage.db import conectar
 DB_PATH = Path("relevamiento_precios.db")
 CARPETA = Path("historico")
 
-COLUMNAS = ["fecha", "ean_o_id", "clase_codigo", "comercio", "precio", "region"]
+COLUMNAS = ["fecha", "ean_o_id", "clase_codigo", "comercio", "precio", "region", "nombre_producto"]
 
 
 def dias_en_base(con) -> list[str]:
@@ -53,11 +53,25 @@ def dias_en_base(con) -> list[str]:
 
 
 def exportar_dia(con, fecha: str) -> Path:
+    # LEFT JOIN con `productos` para incluir el nombre en el respaldo.
+    #
+    # POR QUE ESTO FALTABA Y QUE SE VEIA MAL POR ESO: el nombre del
+    # producto vive en la tabla `productos` de la base local, NO en
+    # `precios_raw`. El respaldo (esta funcion) solo exportaba
+    # `precios_raw` — asi que cuando la app en Streamlit Cloud reconstruye
+    # la base desde el respaldo (scripts/reconstruir.py), la tabla
+    # `productos` quedaba vacia, y el desglose de productos mostraba el
+    # codigo en vez de "Banana". Sumar el nombre aca es lo que permite que
+    # `reconstruir.py` la repueble tambien.
     CARPETA.mkdir(exist_ok=True)
     destino = CARPETA / f"{fecha}.csv.gz"
     cur = con.execute(
-        f"""SELECT {','.join(COLUMNAS)} FROM precios_raw
-            WHERE fecha = ? ORDER BY clase_codigo, ean_o_id, comercio, region""",
+        """SELECT p.fecha, p.ean_o_id, p.clase_codigo, p.comercio, p.precio, p.region,
+                  COALESCE(pr.nombre_producto, '') AS nombre_producto
+           FROM precios_raw p
+           LEFT JOIN productos pr ON pr.ean_o_id = p.ean_o_id
+           WHERE p.fecha = ?
+           ORDER BY p.clase_codigo, p.ean_o_id, p.comercio, p.region""",
         (fecha,),
     )
     n = 0

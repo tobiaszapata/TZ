@@ -454,3 +454,128 @@ def nivel_general_nacional(con, desde, hasta, desde_base, hasta_base,
         cobertura=agregado.peso_cubierto / peso_total_pais if peso_total_pais else 0.0,
         divisiones=filas,
     )
+
+
+# ==========================================================================
+# CAPA DE RENDIMIENTO: separar "leer de la base" (caro) de "combinar
+# numeros" (barato), para que la interfaz pueda cachear solo lo primero.
+#
+# POR QUE ESTO EXISTE:
+# `nivel_general_nacional` y `resumen_divisiones_nacional` hacen, cada vez
+# que se llaman, una consulta SQL + una media geometrica por CADA una de
+# las ~19 subcategorias medidas, en CADA una de las 6 regiones — para
+# despues combinarlas. Eso es el trabajo pesado. Pero en modo simulacion,
+# la persona interactua tildando casillas y escribiendo numeros — cambios
+# que no requieren volver a leer nada de la base, porque no afectan a las
+# subcategorias que SI se miden. Antes de este cambio, cada click volvia a
+# hacer todo el trabajo pesado de nuevo, lo cual se sentia lento.
+#
+# La solucion: `valores_medidos_nacional` hace SOLO la parte cara (leer y
+# calcular), y depende nada mas que del rango de fechas — la interfaz la
+# puede cachear con `@st.cache_data` sin que los overrides formen parte de
+# la clave de cache. `resumen_divisiones_desde_valores` y
+# `nivel_general_desde_divisiones` hacen SOLO la parte barata (aplicar
+# overrides y sumar con pesos), que es instantanea y se puede repetir en
+# cada interaccion sin costo.
+# ==========================================================================
+
+def valores_medidos_nacional(con, desde, hasta, desde_base, hasta_base) -> dict[str, float]:
+    """La parte CARA: la variacion nacional de cada subcategoria medida por
+    SEPA (combinando las 6 regiones). No conoce overrides — es el dato tal
+    cual lo releva el sistema. Se calcula una vez por rango de fechas."""
+    valores: dict[str, float] = {}
+    for codigo in CLASES_CON_COBERTURA_SEPA:
+        v, _cobertura = variacion_clase_nacional(con, codigo, desde, hasta, desde_base, hasta_base)
+        if v is not None:
+            valores[codigo] = v
+    return valores
+
+
+def resumen_divisiones_desde_valores(
+    valores_medidos: dict[str, float],
+    overrides_clase: dict[str, float] | None = None,
+) -> list[ResultadoDivision]:
+    """La parte BARATA: arma las 12 divisiones a partir de valores YA
+    CALCULADOS (ver valores_medidos_nacional), sin tocar la base. Aplicar
+    un override acá es instantáneo."""
+    overrides_clase = overrides_clase or {}
+    salida = []
+    for div in divisiones():
+        clases_div = [c for c in clases_de_division(div.codigo)
+                      if c.cobertura == Cobertura.MEDIDA_SEPA]
+        if not clases_div:
+            salida.append(ResultadoDivision(
+                div.codigo, div.nombre, peso_nacional_division(div.codigo), None, 0.0, []))
+            continue
+
+        filas: list[FilaClase] = []
+        num = den = 0.0
+        tiene_manuales = False
+        for clase in clases_div:
+            peso = peso_nacional_clase(clase.codigo)
+            if clase.codigo in overrides_clase:
+                v = overrides_clase[clase.codigo]
+                es_manual = True
+                tiene_manuales = True
+            else:
+                v = valores_medidos.get(clase.codigo)
+                es_manual = False
+            filas.append(FilaClase(clase.codigo, clase.nombre, peso, v, 0, es_manual=es_manual))
+            if v is not None:
+                num += peso * v
+                den += peso
+
+        variacion = num / den if den else None
+        for f in filas:
+            f.aporte_pp = (f.peso / den * f.variacion_pct) if (den and f.variacion_pct is not None) else None
+
+        peso_total = sum(peso_nacional_clase(c.codigo) for c in clases_div)
+        salida.append(ResultadoDivision(
+            codigo=div.codigo, nombre=div.nombre, peso=peso_nacional_division(div.codigo),
+            variacion_pct=variacion,
+            cobertura=(den / peso_total) if peso_total else 0.0,
+            clases=filas, tiene_manuales=tiene_manuales,
+        ))
+    return salida
+
+
+def nivel_general_desde_divisiones(
+    divs: list[ResultadoDivision],
+    overrides_division: dict[str, float] | None = None,
+) -> ResultadoNivelGeneral:
+    """La parte BARATA equivalente para el nivel general: combina
+    divisiones YA CALCULADAS (ver resumen_divisiones_desde_valores) con
+    los overrides de división. Instantáneo — no toca la base."""
+    overrides_division = overrides_division or {}
+    filas: list[FilaDivision] = []
+    valores: dict[str, float] = {}
+
+    for d in divs:
+        if d.codigo in overrides_division:
+            v = overrides_division[d.codigo]
+            fuente = "manual"
+            cobertura_interna = None
+        elif d.variacion_pct is not None:
+            v = d.variacion_pct
+            fuente = "medida"
+            cobertura_interna = d.cobertura
+        else:
+            v = None
+            fuente = "sin_dato"
+            cobertura_interna = None
+        filas.append(FilaDivision(d.codigo, d.nombre, d.peso, v, fuente, cobertura_interna))
+        if v is not None:
+            valores[d.codigo] = v
+
+    if not valores:
+        return ResultadoNivelGeneral(None, 0.0, filas)
+
+    pesos = {cod: peso_nacional_division(cod) for cod in valores}
+    agregado = laspeyres(valores, pesos)
+    peso_total_pais = sum(peso_nacional_division(d.codigo) for d in divisiones())
+
+    return ResultadoNivelGeneral(
+        variacion_pct=agregado.variacion_pct,
+        cobertura=agregado.peso_cubierto / peso_total_pais if peso_total_pais else 0.0,
+        divisiones=filas,
+    )
