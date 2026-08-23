@@ -36,6 +36,7 @@ from pathlib import Path
 import streamlit as st
 
 from engine.consultas import (
+    actualizar_override,
     nivel_general_desde_divisiones,
     resumen_divisiones_desde_valores,
     valores_medidos_nacional,
@@ -117,6 +118,31 @@ if "overrides_clase" not in st.session_state:
     st.session_state.overrides_clase = {}      # {codigo_clase: valor_pct}
 if "overrides_division" not in st.session_state:
     st.session_state.overrides_division = {}   # {codigo_division: valor_pct}
+
+
+def _aplicar_override_division(codigo: str) -> None:
+    """Callback de los widgets de edicion a nivel division (checkbox 'usar'
+    + number_input). Se ejecuta ANTES de que Streamlit vuelva a correr el
+    script desde el principio — a diferencia de leer el valor del widget y
+    guardarlo mas abajo en el mismo bucle donde se renderiza, que quedaba
+    grabado DESPUES de que el nivel general ya se habia calculado mas
+    arriba en ese mismo pase del script. Ver el comentario junto a donde
+    se usa esto, mas abajo, y tests/test_callbacks_edicion.py."""
+    actualizar_override(
+        st.session_state.overrides_division, codigo,
+        st.session_state.get(f"chkdiv_{codigo}", False),
+        st.session_state.get(f"ovdiv_{codigo}", 0.0),
+    )
+
+
+def _aplicar_override_clase(codigo: str) -> None:
+    """Igual que `_aplicar_override_division`, para las subcategorias."""
+    actualizar_override(
+        st.session_state.overrides_clase, codigo,
+        st.session_state.get(f"chkcls_{codigo}", False),
+        st.session_state.get(f"ovcls_{codigo}", 0.0),
+    )
+
 
 # ---------------------------------------------------------------- controles
 with st.sidebar:
@@ -249,22 +275,33 @@ for f in r.divisiones:
         continue
 
     # ORDEN DE LA INTERACCION, a proposito: primero se tilda "usar", y
-    # RECIEN AHI aparece el casillero para escribir el numero. Antes los
-    # dos controles estaban uno al lado del otro sin orden claro, y no
-    # quedaba obvio que hacia falta hacer las dos cosas.
+    # RECIEN AHI aparece el casillero para escribir el numero.
+    #
+    # POR QUE on_change Y NO "leer el valor y guardarlo aca abajo":
+    # Streamlit corre el ARCHIVO ENTERO de arriba a abajo en cada
+    # interaccion. "r" (el nivel general) se calcula MAS ARRIBA en este
+    # mismo archivo, ANTES de llegar a este bucle. Si el valor que el
+    # usuario escribe se guardara recien aca (como estaba antes), quedaria
+    # grabado DESPUES de que "r" ya se calculo con el dato viejo — recien
+    # se veria reflejado en la SIGUIENTE interaccion. Es exactamente el
+    # bug reportado ("tengo que pasar a otro item para que cuente").
+    # `on_change` corre el callback ANTES de que el script se re-ejecute
+    # desde el principio, asi que el valor ya esta guardado cuando "r" se
+    # calcula. Ver tests/test_callbacks_edicion.py.
     actual = st.session_state.overrides_division.get(f.codigo)
-    usar = cols[3].checkbox("usar valor manual", value=(actual is not None),
-                            key=f"chkdiv_{f.codigo}", label_visibility="collapsed")
+    usar = cols[3].checkbox(
+        "usar valor manual", value=(actual is not None),
+        key=f"chkdiv_{f.codigo}", label_visibility="collapsed",
+        on_change=_aplicar_override_division, args=(f.codigo,),
+    )
     if usar:
-        nuevo = cols[4].number_input(
+        cols[4].number_input(
             "valor %", value=actual if actual is not None else 0.0,
             step=0.1, format="%.2f", key=f"ovdiv_{f.codigo}", label_visibility="collapsed",
+            on_change=_aplicar_override_division, args=(f.codigo,),
         )
-        st.session_state.overrides_division[f.codigo] = nuevo
     else:
         cols[4].caption("(dato medido)" if f.fuente != "sin_dato" else "(sin dato)")
-        if f.codigo in st.session_state.overrides_division:
-            del st.session_state.overrides_division[f.codigo]
 
     if f.fuente == "medida" and f.cobertura_interna is not None and f.cobertura_interna < 0.5:
         st.caption(
@@ -312,17 +349,17 @@ for d in divs_detalle:
             if mostrar_edicion:
                 clave = f.codigo
                 actual = st.session_state.overrides_clase.get(clave)
-                usar = cols[4].checkbox("usar", value=(actual is not None),
-                                        key=f"chkcls_{clave}", label_visibility="collapsed")
+                usar = cols[4].checkbox(
+                    "usar", value=(actual is not None),
+                    key=f"chkcls_{clave}", label_visibility="collapsed",
+                    on_change=_aplicar_override_clase, args=(clave,),
+                )
                 if usar:
-                    nuevo = cols[5].number_input(
+                    cols[5].number_input(
                         "valor %", value=actual if actual is not None else 0.0,
                         step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
+                        on_change=_aplicar_override_clase, args=(clave,),
                     )
-                    st.session_state.overrides_clase[clave] = nuevo
-                else:
-                    if clave in st.session_state.overrides_clase:
-                        del st.session_state.overrides_clase[clave]
 
         st.markdown("")
         medidas = [f for f in d.clases if f.variacion_pct is not None]

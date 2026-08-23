@@ -22,8 +22,11 @@ La solucion es exportar UN ARCHIVO POR DIA, comprimido:
 
 Ventajas frente a versionar la base:
   - cada archivo pesa unos pocos MB, muy lejos del limite;
-  - un dia ya exportado NO SE VUELVE A TOCAR, asi que git solo agrega
-    archivos nuevos en vez de reescribir uno gigante;
+  - un dia ya exportado, con el formato AL DIA, no se vuelve a tocar — asi
+    que en el dia a dia git solo agrega archivos nuevos en vez de
+    reescribir uno gigante. La unica excepcion es cuando el formato de
+    exportacion mejora (ver VERSION_FORMATO mas abajo): ahi si conviene
+    reescribir los viejos, una sola vez, para que se pongan al dia;
   - es texto plano: dentro de diez anios se puede leer sin este programa;
   - la base se puede borrar y reconstruir entera desde estos archivos
     (ver scripts/reconstruir.py).
@@ -45,6 +48,31 @@ DB_PATH = Path("relevamiento_precios.db")
 CARPETA = Path("historico")
 
 COLUMNAS = ["fecha", "ean_o_id", "clase_codigo", "comercio", "precio", "region", "nombre_producto"]
+
+# Version del FORMATO de exportacion — no del contenido de un dia puntual.
+# Sube cada vez que se agrega o cambia una columna. Sirve para que un
+# respaldo viejo (generado con menos columnas) se detecte como "atrasado"
+# y se regenere solo, en vez de quedar congelado para siempre con el
+# formato anterior. Historial:
+#   1 -> columnas originales, SIN nombre_producto (mostraba el codigo del
+#        producto en los reportes en vez del nombre — este fue el bug real
+#        reportado en produccion).
+#   2 -> se agrego nombre_producto.
+VERSION_FORMATO = 2
+
+
+def version_del_respaldo(path: Path) -> int:
+    """Detecta con que version de formato se genero un respaldo existente,
+    mirando solo su encabezado (no hace falta leer el archivo entero). La
+    version SE DEDUCE de las columnas presentes, no de un numero aparte
+    guardado a mano — asi no hay dos fuentes de verdad que puedan
+    desincronizarse entre si."""
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            encabezado = fh.readline().strip().split(",")
+    except (OSError, EOFError):
+        return 0  # archivo corrupto o vacio: tratar como "hay que rehacerlo"
+    return VERSION_FORMATO if "nombre_producto" in encabezado else 1
 
 
 def dias_en_base(con) -> list[str]:
@@ -106,7 +134,7 @@ def main() -> None:
     exportados = omitidos = 0
     for fecha in fechas:
         destino = CARPETA / f"{fecha}.csv.gz"
-        if destino.exists() and not args.rehacer:
+        if destino.exists() and not args.rehacer and version_del_respaldo(destino) >= VERSION_FORMATO:
             omitidos += 1
             continue
         destino, n = exportar_dia(con, fecha)

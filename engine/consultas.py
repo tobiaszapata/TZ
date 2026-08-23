@@ -539,6 +539,29 @@ def resumen_divisiones_desde_valores(
     return salida
 
 
+def actualizar_override(overrides: dict[str, float], codigo: str, usar: bool, valor: float) -> None:
+    """Lógica pura de qué hacer con un diccionario de overrides dado el
+    estado de los dos controles de edición (checkbox "usar", número
+    escrito). Muta el diccionario en el lugar, igual que hace
+    `st.session_state`, para que quien llama no tenga que reasignar nada.
+
+    Se separa de app_streamlit.py a propósito: la app no hace cuentas, y
+    esto —aunque parezca trivial— es la lógica que decide si un valor
+    manual cuenta o no. Vive acá para poder testearla sin necesitar
+    Streamlit instalado (ver tests/test_callbacks_edicion.py), que es el
+    módulo que corrige el bug real reportado: "hay que pasar a otro ítem
+    para que el valor cuente en el nivel general". La causa era de orden
+    de ejecución del script (Streamlit corre todo de arriba a abajo, y el
+    nivel general se calculaba antes de llegar a los controles de
+    edición); la corrección usa `on_change` para que esta función se
+    ejecute ANTES de que el script vuelva a correr desde el principio, en
+    vez de guardar el valor más abajo en el mismo pase donde ya era tarde."""
+    if usar:
+        overrides[codigo] = valor
+    else:
+        overrides.pop(codigo, None)
+
+
 def nivel_general_desde_divisiones(
     divs: list[ResultadoDivision],
     overrides_division: dict[str, float] | None = None,

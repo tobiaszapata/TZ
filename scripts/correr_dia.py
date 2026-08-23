@@ -53,33 +53,58 @@ RE_FECHA_JUNTA = re.compile(r"(20\d{2})(\d{2})(\d{2})")
 
 
 def _respaldar_automaticamente(con) -> None:
-    """Guarda el respaldo comprimido de cualquier dia que todavia no lo
-    tenga, apenas termina de cargar.
+    """Guarda el respaldo comprimido de cualquier dia que no lo tenga, o
+    cuyo respaldo haya quedado VIEJO respecto de la version actual del
+    exportador, apenas termina de cargar.
 
-    POR QUE ESTO PASO A SER AUTOMATICO: antes habia que acordarse de correr
-    `python -m scripts.exportar_dia` como paso aparte despues de cada carga.
-    Si alguien se olvidaba, esos dias quedaban solo en la base local — y si
-    la base se perdia o se reiniciaba sin haber respaldado, el dia se iba
-    para siempre (SEPA no lo vuelve a tener disponible pasados 7 dias).
-    Ahora es parte del mismo comando: cargar y respaldar son un solo paso,
-    y no depende de la memoria de nadie.
+    POR QUE SE CAMBIO DE "si existe, no tocar" A ESTO: la version anterior
+    saltaba directamente cualquier dia que ya tuviera un archivo en
+    historico/, sin importar que tan viejo fuera ese archivo. Eso genero un
+    bug real: cuando se agrego el nombre del producto al formato de
+    exportacion (ver scripts/exportar_dia.py), los dias que YA estaban
+    respaldados de antes quedaron congelados para siempre en el formato
+    viejo, sin nombres — y como Streamlit Cloud reconstruye TODA la base
+    desde historico/ en cada despliegue, el desglose de productos mostraba
+    el codigo en las dos columnas para TODOS los productos, no solo los
+    nuevos.
 
-    Reutiliza la logica de scripts/exportar_dia.py (no la duplica): esa es
-    la fuente de verdad de "como se exporta un dia", esto solo la dispara."""
-    from scripts.exportar_dia import CARPETA, dias_en_base, exportar_dia
+    La solucion: cada respaldo lleva adentro que VERSION del formato de
+    exportacion lo genero (ver `VERSION_FORMATO` en exportar_dia.py). Si el
+    archivo existente es de una version vieja, se regenera aunque ya
+    exista. Asi, la proxima vez que el formato de exportacion mejore, los
+    respaldos viejos se ponen al dia solos, sin que nadie tenga que
+    acordarse de correr --rehacer a mano."""
+    from scripts.exportar_dia import (
+        CARPETA, VERSION_FORMATO, dias_en_base, exportar_dia, version_del_respaldo,
+    )
 
     fechas = dias_en_base(con)
     CARPETA.mkdir(exist_ok=True)
-    nuevos = 0
+    nuevos, fallidos = 0, []
     for fecha in fechas:
         destino = CARPETA / f"{fecha}.csv.gz"
-        if destino.exists():
+        if destino.exists() and version_del_respaldo(destino) >= VERSION_FORMATO:
             continue
-        exportar_dia(con, fecha)
-        nuevos += 1
+        try:
+            exportar_dia(con, fecha)
+            nuevos += 1
+        except Exception as exc:
+            # Un dia que falla al exportar NO debe cortar el resto: antes,
+            # una excepcion aca arriba interrumpia el bucle entero y los
+            # dias siguientes quedaban sin respaldar en silencio, sin
+            # ningun mensaje que lo explicara. Ahora se sigue con los
+            # demas y se informa al final cuales fallaron.
+            fallidos.append((fecha, str(exc)))
     if nuevos:
         print(f"\nRespaldo automático: {nuevos} día(s) nuevo(s) guardados en {CARPETA}/")
         print("(para publicarlos: git add historico/ && git commit -m \"datos\" && git push)")
+    if fallidos:
+        print(f"\n⚠ No se pudo respaldar {len(fallidos)} día(s):", file=sys.stderr)
+        for fecha, error in fallidos:
+            print(f"  {fecha}: {error}", file=sys.stderr)
+        print("Esos días quedaron cargados en la base local, pero SIN respaldo — no van a", file=sys.stderr)
+        print("aparecer en Streamlit Cloud hasta que se resuelva esto y se vuelva a correr", file=sys.stderr)
+        print("'python -m scripts.correr_dia --carpeta datos_sepa/' (es seguro repetirlo).", file=sys.stderr)
 
 
 def fecha_desde_nombre(nombre: str) -> str | None:
@@ -218,8 +243,16 @@ def main() -> None:
             print(f"Salteados (sin fecha reconocible en el nombre): {salteados}")
             print("Renombralos incluyendo la fecha, o cargalos de a uno con --archivo/--fecha")
 
-        if cargados:
-            _respaldar_automaticamente(con)
+        # Se llama SIEMPRE que hubo al menos un archivo para procesar, no
+        # solo cuando `cargados > 0`. Motivo: si todos los dias de la
+        # carpeta ya estaban cargados (cargados == 0, el caso normal
+        # cuando corres esto y no bajaste nada nuevo), el chequeo de
+        # "hay algun respaldo desactualizado que convenga regenerar" tiene
+        # que correr igual — sino, un dia con respaldo viejo (por ejemplo,
+        # de antes de que existiera nombre_producto) queda congelado para
+        # siempre en cuanto ya no haya archivos nuevos que disparen el
+        # respaldo. Es justo el bug real que esto corrige.
+        _respaldar_automaticamente(con)
         con.close()
         return
 

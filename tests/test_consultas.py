@@ -353,3 +353,28 @@ def test_valores_medidos_nacional_no_depende_de_overrides():
         v2 = valores_medidos_nacional(con, D1, H1, D0, H0)
         assert v1 == v2
         con.close()
+
+
+def test_combinar_regiones_renormaliza_cuando_falta_una():
+    """El caso que explica diferencias con calculos manuales que dividen
+    siempre por el 100% de las 6 regiones: si una region no tiene dato,
+    el sistema renormaliza sobre las que si tienen — no divide por el
+    peso de las 6."""
+    from engine.consultas import _combinar_regiones
+    from config.canasta import PESO_REGION
+
+    valores_incompletos = {"GBA": 5.0, "Pampeana": 8.0, "Noroeste": 10.0,
+                           "Cuyo": 6.0, "Patagonia": 3.0}  # falta Noreste
+    v, cobertura = _combinar_regiones(valores_incompletos, PESO_REGION)
+
+    pesos_5 = {r: PESO_REGION[r] for r in valores_incompletos}
+    esperado_renormalizado = (sum(pesos_5[r] * valores_incompletos[r] for r in valores_incompletos)
+                              / sum(pesos_5.values()))
+    esperado_sin_renormalizar = (sum(pesos_5[r] * valores_incompletos[r] for r in valores_incompletos)
+                                 / sum(PESO_REGION.values()))
+
+    assert math.isclose(v, esperado_renormalizado, rel_tol=1e-9)
+    assert not math.isclose(v, esperado_sin_renormalizar, abs_tol=0.01), (
+        "si esto se cumpliera, el sistema NO estaria renormalizando"
+    )
+    assert math.isclose(cobertura, sum(pesos_5.values()) / sum(PESO_REGION.values()), rel_tol=1e-9)
