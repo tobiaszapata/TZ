@@ -23,10 +23,21 @@ from enum import Enum
 REGIONES = ["GBA", "Pampeana", "Noreste", "Noroeste", "Cuyo", "Patagonia"]
 
 # Importancia de cada region en el indice nacional.
-# FUENTE: Metodologia N32, Cuadro 6.
+# FUENTE: tabla oficial de INDEC con 2 decimales de precision (provista
+# directamente, no la version redondeada a 3 decimales de la Metodologia
+# N32 que se usaba antes). Suma EXACTA 1.0 sin necesidad de normalizar:
+# 44.67 + 34.19 + 4.51 + 6.88 + 5.18 + 4.57 = 100.00
+#
+# HISTORIAL: la version anterior usaba los valores de la Metodologia N32
+# Cuadro 6 redondeados a 3 decimales (0.447, 0.342, 0.069, 0.045, 0.052,
+# 0.046), que sumaban 1.001 en vez de 1.000 -- un error real detectado al
+# comparar un calculo manual contra el del sistema (el peso nacional de
+# Alimentos daba 26.996% en la version con error, 26.969% con la
+# normalizacion proporcional de ese error, y ahora 26.934% exacto con
+# estos valores mas precisos, que coincide con el calculo manual).
 PESO_REGION = {
-    "GBA": 0.447, "Pampeana": 0.342, "Noroeste": 0.069,
-    "Noreste": 0.045, "Cuyo": 0.052, "Patagonia": 0.046,
+    "GBA": 0.4467, "Pampeana": 0.3419, "Noroeste": 0.0688,
+    "Noreste": 0.0451, "Cuyo": 0.0518, "Patagonia": 0.0457,
 }
 
 

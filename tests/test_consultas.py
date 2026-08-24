@@ -378,3 +378,32 @@ def test_combinar_regiones_renormaliza_cuando_falta_una():
         "si esto se cumpliera, el sistema NO estaria renormalizando"
     )
     assert math.isclose(cobertura, sum(pesos_5.values()) / sum(PESO_REGION.values()), rel_tol=1e-9)
+
+
+def test_peso_region_suma_exactamente_uno():
+    """Historial: los pesos de la Metodologia N32 Cuadro 6, redondeados a 3
+    decimales (0.447, 0.342, 0.069, 0.045, 0.052, 0.046), sumaban 1.001 en
+    vez de 1.000. Se reemplazaron por una tabla con 2 decimales provista
+    directamente (44.67%, 34.19%, 6.88%, 4.51%, 5.18%, 4.57%), que suma
+    exacto sin necesidad de normalizar. Este test evita que un valor mal
+    tipeado en una futura edicion rompa esa suma."""
+    from config.canasta import PESO_REGION
+    assert math.isclose(sum(PESO_REGION.values()), 1.0, abs_tol=1e-9)
+
+
+def test_peso_region_coincide_con_la_tabla_oficial_provista():
+    """Valores exactos de la tabla de INDEC, para detectar si alguien
+    edita PESO_REGION sin darse cuenta de que tiene que seguir sumando
+    exacto 1.0 y usando estos numeros como fuente."""
+    from config.canasta import PESO_REGION
+    esperado = {"GBA": 0.4467, "Pampeana": 0.3419, "Noroeste": 0.0688,
+               "Noreste": 0.0451, "Cuyo": 0.0518, "Patagonia": 0.0457}
+    for region, valor in esperado.items():
+        assert math.isclose(PESO_REGION[region], valor, abs_tol=1e-9), region
+
+
+def test_los_12_pesos_nacionales_de_division_suman_100():
+    from engine.consultas import peso_nacional_division
+    from config.canasta import divisiones
+    suma = sum(peso_nacional_division(d.codigo) for d in divisiones())
+    assert math.isclose(suma, 100.0, abs_tol=0.01)
