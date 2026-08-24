@@ -63,3 +63,21 @@ def acotar_rango(
         return max(d_min, min(d_max, d))
 
     return _acotar(desde), _acotar(hasta), _acotar(desde_base), _acotar(hasta_base)
+
+
+def hace_falta_confirmar(combinacion_actual: tuple, combinacion_confirmada: tuple | None) -> bool:
+    """Logica PURA de cuándo la app tiene que pedir confirmación antes de
+    calcular con un período nuevo, en vez de disparar el cálculo apenas
+    arranca o apenas se toca cualquier fecha.
+
+    Se separa de app_streamlit.py para poder testearla sin Streamlit
+    instalado — ver tests/test_confirmacion_fechas.py.
+
+    POR QUE ESTO EXISTE: antes, la app calculaba el resultado apenas
+    arrancaba, usando el preset activo por defecto ("última semana").
+    Alguien que abría el link y no quería ver justamente esa comparación
+    tenía la sensación de "por qué me tarda/me muestra esto que no pedí"
+    — no era un error de cálculo, pero sí una mala primera impresión.
+    Ahora se piden las fechas y se muestra un resumen ANTES de calcular
+    nada; recién con la confirmación explícita se dispara el cálculo."""
+    return combinacion_confirmada != combinacion_actual

@@ -78,3 +78,33 @@ def test_sin_productos_en_comun_devuelve_none():
     )
     assert resultado is None
     assert drivers == []
+
+
+def test_peso_proxy_no_depende_de_cuantos_productos_se_muestren():
+    """Responde una duda real: si la interfaz solo MUESTRA los primeros N
+    productos (por legibilidad), el peso proxy de esos N no debe cambiar
+    como si el universo fuera solo esos N — tiene que seguir calculado
+    sobre el TOTAL de productos comunes entre los dos periodos."""
+    precios_mes = {
+        "A": [100.0] * 20, "B": [150.0] * 15, "C": [120.0] * 10,
+        "D": [300.0] * 3, "E": [400.0] * 2,
+    }
+    precios_mes_ant = {k: [v[0] * 0.95] * len(v) for k, v in precios_mes.items()}
+
+    resultado, drivers = calcular_clase_y_productos(precios_mes, precios_mes_ant)
+
+    total_obs = sum(len(v) for v in precios_mes.values())
+    por_ean = {d.ean_o_id: d for d in drivers}
+
+    assert math.isclose(por_ean["A"].peso_proxy_pct, 20 / total_obs * 100)
+    assert math.isclose(por_ean["B"].peso_proxy_pct, 15 / total_obs * 100)
+
+    # simulando que la interfaz solo "muestra" los primeros 3 (como el
+    # limite real de 30 en pantalla): el peso de esos 3 no se recalcula
+    # como si el total fuera 3
+    solo_los_primeros_3 = drivers[:3]
+    suma_de_esos_3 = sum(d.peso_proxy_pct for d in solo_los_primeros_3)
+    assert suma_de_esos_3 < 100.0, (
+        "si diera 100%, significaria que se esta recalculando el peso "
+        "sobre el subconjunto mostrado, no sobre el total"
+    )

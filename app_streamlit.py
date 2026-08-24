@@ -43,7 +43,7 @@ from engine.consultas import (
     valores_medidos_nacional,
     variacion_clase,
 )
-from engine.fechas import acotar_rango, calcular_preset
+from engine.fechas import acotar_rango, calcular_preset, hace_falta_confirmar
 from storage.db import conectar
 
 DB_PATH = Path("relevamiento_precios.db")
@@ -83,8 +83,20 @@ def _con():
         con_provisoria.close()
 
     if hace_falta_reconstruir(DB_PATH.exists(), dias_en_base, len(respaldos)):
-        from scripts.reconstruir import reconstruir
-        reconstruir()
+        # Este paso es el que tarda cuando el servidor arranca "en frio"
+        # (recien despertado, o primera vez): reconstruye TODA la base
+        # leyendo un archivo por cada dia cargado. Con muchos dias
+        # acumulados puede llevar de decenas de segundos a un par de
+        # minutos — mostrarlo explicitamente evita que parezca que la
+        # aplicacion esta colgada quieta sin ningun aviso.
+        with st.spinner(
+            f"Preparando los datos ({len(respaldos)} días acumulados)... "
+            "esto puede tardar un momento la primera vez que se abre la app "
+            "después de un rato de inactividad. No hace falta hacer nada, "
+            "solo esperar."
+        ):
+            from scripts.reconstruir import reconstruir
+            reconstruir()
 
     return conectar(DB_PATH)
 
@@ -183,6 +195,7 @@ with st.sidebar:
                                              "GitHub y no los ves reflejados abajo."):
         st.cache_resource.clear()
         st.cache_data.clear()
+        st.session_state.pop("fechas_confirmadas", None)
         st.rerun()
 
     st.header("Período")
@@ -194,6 +207,7 @@ with st.sidebar:
         "Comparación rápida",
         ["Última semana vs previa", "Mes actual vs anterior", "Personalizado (ver todo lo cargado)"],
         index=0,
+        key="preset_sel",
     )
     clave_preset = {"Última semana vs previa": "semana",
                     "Mes actual vs anterior": "mes",
@@ -212,12 +226,37 @@ with st.sidebar:
             "empezar a ver variaciones."
         )
 
-    st.markdown("**Período a analizar**")
+    st.markdown("**Período a analizar** _(el más reciente, para ver cómo viene la inflación ahora)_")
     d1 = st.date_input("desde", d1, min_value=d_min, max_value=d_max, key="d1")
     h1 = st.date_input("hasta", h1, min_value=d_min, max_value=d_max, key="h1")
     st.markdown("**Comparado contra**")
     d0 = st.date_input("desde ", d0, min_value=d_min, max_value=d_max, key="d0")
     h0 = st.date_input("hasta ", h0, min_value=d_min, max_value=d_max, key="h0")
+
+    # ------------------------------------------------------------
+    # PASO DE CONFIRMACION, a pedido: en vez de calcular el resultado
+    # apenas la app arranca (con el preset activo por defecto, que puede
+    # no ser lo que la persona queria mirar en ese momento), se muestran
+    # las fechas propuestas y NO SE CALCULA NADA hasta que se confirme.
+    # Solo hace falta confirmar una vez por sesion; despues, cambiar el
+    # preset o las fechas vuelve a pedir confirmacion (se detecta
+    # guardando cual fue la ultima combinacion ya confirmada).
+    combinacion_actual = (d1, h1, d0, h0)
+    ya_confirmada = not hace_falta_confirmar(
+        combinacion_actual, st.session_state.get("fechas_confirmadas")
+    )
+
+    if not ya_confirmada:
+        st.warning("Revisá las fechas de arriba y confirmá para calcular.")
+        if st.button("✅ Calcular con estas fechas", type="primary"):
+            st.session_state.fechas_confirmadas = combinacion_actual
+            st.rerun()
+        st.stop()
+    else:
+        if st.button("↺ Elegir otro período"):
+            st.session_state.pop("fechas_confirmadas", None)
+            st.rerun()
+    # ------------------------------------------------------------
 
     st.divider()
     st.header("Modo simulación")
@@ -434,20 +473,37 @@ for d in divs_detalle:
                 # subcategoria", no el numero oficial de arriba.
                 res, drivers = _productos_de_clase_cacheado(_con(), cod, D1, H1, D0, H0)
                 if res:
+                    total_productos = len(drivers)
+                    ver_todos = st.checkbox(
+                        f"Ver los {total_productos} productos (por defecto se muestran los "
+                        "30 que más explican la variación)",
+                        key=f"vertodos_{cod}",
+                    )
+                    a_mostrar = drivers if ver_todos else drivers[:30]
+                    if not ver_todos and total_productos > 30:
+                        st.caption(
+                            f"Mostrando 30 de {total_productos} productos, ordenados por cuánto "
+                            "explican la variación de la categoría. El cálculo de arriba "
+                            "(la variación de la categoría en sí) ya incluye a los "
+                            f"{total_productos} — este límite es solo para que la tabla sea "
+                            "legible, tildá la casilla para ver la lista completa."
+                        )
                     st.dataframe(
                         [{"Producto": p.nombre_producto,
                           "Código": p.ean_o_id,
                           "Variación": f"{p.variacion_pct:+.1f}%",
                           "Peso*": f"{p.peso_proxy_pct:.1f}%",
                           "Aporte pp": f"{p.incidencia_aproximada_pp:+.2f}"}
-                         for p in drivers[:30]],
+                         for p in a_mostrar],
                         width="stretch", hide_index=True,
                     )
                     st.caption(
                         "\\* El peso por producto es una **aproximación** (participación en las "
                         "observaciones, de todo el país sin distinguir región): INDEC no publica "
                         "ponderadores por debajo de la categoría. Sirve para ver qué producto "
-                        "mueve qué, no como peso oficial. · La columna **Código** es el "
+                        "mueve qué, no como peso oficial. Se calcula sobre el TOTAL de productos "
+                        "de la categoría, no solo sobre los que se muestran en pantalla. · La "
+                        "columna **Código** es el "
                         "identificador con el que se cargó el producto (normalmente el código de "
                         "barras) — sirve para verificar contra la fuente original si un valor "
                         "llama la atención."
