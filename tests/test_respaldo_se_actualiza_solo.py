@@ -110,3 +110,46 @@ def test_correr_dia_regenera_respaldo_viejo_aunque_no_haya_archivos_nuevos():
         with gzip.open(historico / "2026-08-09.csv.gz", "rt") as fh:
             contenido = fh.read()
         assert "Banana x kg" in contenido
+
+
+def test_repara_respaldos_viejos_aunque_la_carpeta_de_sepa_este_vacia():
+    """Antes, si datos_sepa/ no tenia nada para cargar, el comando se iba
+    ANTES de llegar a la reparacion de respaldos viejos -- aunque esa
+    reparacion no necesita los ZIP de SEPA para nada, trabaja sobre la
+    base local ya cargada. Reproduce exactamente ese escenario: una base
+    con un dia cargado y su respaldo en formato viejo, y una carpeta de
+    SEPA completamente vacia."""
+    raiz = Path(__file__).resolve().parent.parent
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        (t / "datos_sepa").mkdir()  # vacia a proposito
+        historico = t / "historico"
+        _respaldo_viejo(historico / "2026-08-09.csv.gz", "2026-08-09")
+
+        # armar una base local con ese mismo dia cargado, en la carpeta de trabajo
+        import subprocess
+        script = (
+            "from pathlib import Path\n"
+            "from engine.index_elemental import ObservacionVariedad\n"
+            "from storage.db import conectar, insertar_observaciones\n"
+            "con = conectar(Path('relevamiento_precios.db'))\n"
+            "insertar_observaciones(con, [(ObservacionVariedad("
+            "'2026-08-09','7790001','C1',100.0,'Banana x kg',region='GBA'),'01.1.6')])\n"
+            "con.close()\n"
+        )
+        import os
+        env = {**os.environ, "PYTHONPATH": str(raiz)}
+        subprocess.run([sys.executable, "-c", script], cwd=t, env=env, timeout=30)
+
+        assert version_del_respaldo(historico / "2026-08-09.csv.gz") == 1
+
+        r = subprocess.run(
+            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(t / "datos_sepa")],
+            cwd=t, capture_output=True, text=True, timeout=60, env=env,
+        )
+
+        assert version_del_respaldo(historico / "2026-08-09.csv.gz") == VERSION_FORMATO, (
+            "el respaldo viejo no se reparo aunque datos_sepa/ estuviera vacia:\n" + r.stdout
+        )
+        with gzip.open(historico / "2026-08-09.csv.gz", "rt") as fh:
+            assert "Banana x kg" in fh.read()

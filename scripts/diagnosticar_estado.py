@@ -15,6 +15,7 @@ repositorio en github.com o el log de "Manage app" en Streamlit Cloud.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from scripts.exportar_dia import VERSION_FORMATO, dias_en_base, version_del_respaldo
@@ -22,6 +23,53 @@ from storage.db import conectar
 
 DB_PATH = Path("relevamiento_precios.db")
 CARPETA = Path("historico")
+
+
+def _estado_de_git() -> str:
+    """Revisa si historico/ tiene cambios sin subir a GitHub.
+
+    POR QUE ESTO SE AGREGO: la version anterior de este diagnostico solo
+    miraba la base local y la carpeta historico/ LOCAL — nunca chequeaba si
+    lo que hay ahi realmente llego a GitHub. Ese es exactamente el eslabon
+    que se rompio en un caso real: el diagnostico local decia "todo
+    consistente", pero Streamlit Cloud (que lee de GitHub, no del disco de
+    la persona) seguia mostrando lo viejo porque el 'git push' nunca se
+    habia hecho, o habia fallado sin que se notara. Ahora esto se chequea
+    en el mismo lugar, para no tener que adivinar entre tres pantallas
+    distintas (terminal, GitHub, Streamlit)."""
+    try:
+        r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"],
+                          capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            return "no es un repositorio de git (¿corriste 'git init'?)"
+    except FileNotFoundError:
+        return "git no esta instalado en esta terminal"
+
+    sin_commitear = subprocess.run(
+        ["git", "status", "--porcelain", "--", str(CARPETA)],
+        capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+
+    if sin_commitear:
+        n = len(sin_commitear.splitlines())
+        return (f"HAY {n} ARCHIVO(S) EN historico/ SIN SUBIR A GITHUB.\n"
+                f"    Faltó (o falló) el 'git add historico/ && git commit && git push'.\n"
+                f"    Streamlit Cloud NO puede ver estos cambios hasta que se suban.")
+
+    sin_pushear = subprocess.run(
+        ["git", "log", "@{u}..HEAD", "--oneline", "--", str(CARPETA)],
+        capture_output=True, text=True, timeout=10,
+    )
+    if sin_pushear.returncode != 0:
+        return ("no se pudo comparar contra GitHub (no hay rama remota configurada).\n"
+                f"    Si nunca corriste 'git push -u origin main', hacelo una vez;\n"
+                f"    después este chequeo va a poder confirmar si falta subir algo.")
+    if sin_pushear.stdout.strip():
+        n = len(sin_pushear.stdout.strip().splitlines())
+        return (f"Hay {n} commit(s) CON CAMBIOS EN historico/ que están commiteados\n"
+                f"    pero todavía no se subieron con 'git push'.")
+
+    return "todo lo de historico/ está commiteado y subido (según esta rama local)."
 
 
 def main() -> None:
@@ -78,12 +126,10 @@ def main() -> None:
         print("\n[OK] Todo consistente: cada dia de la base tiene su respaldo, formato actual.")
 
     print(f"\n{'='*72}")
-    print("Este diagnostico es SOLO LOCAL. Para confirmar que lo mismo llego a GitHub:")
-    print("  1. Entra a tu repositorio en github.com, carpeta historico/")
-    print("  2. Fijate si estas mismas fechas estan ahi")
-    print("  3. Si falta alguna, seguramente no se hizo 'git push' despues de cargarla,")
-    print("     o el push fallo -- revisa el mensaje de la terminal cuando lo corriste.")
+    print("  ESTADO EN GITHUB (esto es lo que realmente ve Streamlit Cloud)")
     print(f"{'='*72}\n")
+    print(_estado_de_git())
+    print(f"\n{'='*72}\n")
 
 
 if __name__ == "__main__":

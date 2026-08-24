@@ -151,19 +151,50 @@ def insertar_observaciones(
         filas,
     )
 
-    nombres = [
-        (o.ean_o_id, o.nombre_producto)
-        for o, _clase in observaciones
-        if o.nombre_producto
-    ]
-    if nombres:
+    # Se guarda un nombre para TODOS los productos vistos, no solo los que
+    # traen descripcion real. Antes, si `o.nombre_producto` venia vacio
+    # (pasa en la practica: algunos comercios chicos no completan ese
+    # campo en SEPA), la fila en `productos` directamente NUNCA SE CREABA
+    # — el precio quedaba en precios_raw pero sin ninguna fila
+    # correspondiente en productos. Eso es indistinguible de "nunca se
+    # cargo este producto" para nombres_de_productos(), que solo puede
+    # mostrar el codigo como respaldo cuando no encuentra la fila. Ahora
+    # se guarda el codigo COMO nombre explicitamente en ese caso.
+    #
+    # El "ganador" cuando hay varios nombres para un mismo ean_o_id en
+    # este mismo lote se resuelve ACA, en Python (no con SQL dinamico
+    # dependiente de la version de sqlite3): un nombre real siempre le
+    # gana a un codigo-como-nombre, y entre dos nombres reales gana el
+    # ultimo visto — mismo criterio que ya describia el docstring de
+    # arriba, ahora tambien aplicado dentro de un mismo lote de insercion.
+    mejor_nombre: dict[str, tuple[str, bool]] = {}
+    for o, _clase in observaciones:
+        es_real = bool(o.nombre_producto)
+        candidato = o.nombre_producto if es_real else o.ean_o_id
+        anterior = mejor_nombre.get(o.ean_o_id)
+        if anterior is None or es_real or not anterior[1]:
+            mejor_nombre[o.ean_o_id] = (candidato, es_real)
+
+    nombres_reales = [(ean, nombre) for ean, (nombre, real) in mejor_nombre.items() if real]
+    nombres_placeholder = [(ean, nombre) for ean, (nombre, real) in mejor_nombre.items() if not real]
+
+    if nombres_reales:
         con.executemany(
             """INSERT INTO productos (ean_o_id, nombre_producto, actualizado_en)
                VALUES (?, ?, datetime('now'))
                ON CONFLICT(ean_o_id) DO UPDATE SET
                    nombre_producto = excluded.nombre_producto,
                    actualizado_en = excluded.actualizado_en""",
-            nombres,
+            nombres_reales,
+        )
+    if nombres_placeholder:
+        # INSERT OR IGNORE: si ya existe una fila (con nombre real o con
+        # otro placeholder de una carga anterior), NO se pisa — nunca
+        # queremos que un placeholder reemplace algo que ya estaba.
+        con.executemany(
+            """INSERT OR IGNORE INTO productos (ean_o_id, nombre_producto, actualizado_en)
+               VALUES (?, ?, datetime('now'))""",
+            nombres_placeholder,
         )
 
     con.commit()

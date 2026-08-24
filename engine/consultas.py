@@ -602,3 +602,27 @@ def nivel_general_desde_divisiones(
         cobertura=agregado.peso_cubierto / peso_total_pais if peso_total_pais else 0.0,
         divisiones=filas,
     )
+
+
+def hace_falta_reconstruir(db_existe: bool, dias_en_base: int, dias_en_historico: int) -> bool:
+    """Lógica PURA de cuándo conviene reconstruir la base desde historico/.
+
+    Vive acá (no en app_streamlit.py) para poder testearla sin necesitar
+    Streamlit instalado — ver tests/test_deteccion_reconstruccion.py.
+
+    ES LA CORRECCION DE UN BUG REAL EN PRODUCCION: la app cacheaba la
+    conexión con `@st.cache_resource` y solo reconstruía la base si
+    todavía NO existía en el disco del servidor. Streamlit Cloud no
+    reinicia el proceso en cada `git push` — el código se actualiza pero
+    el proceso de Python sigue corriendo con la base vieja, así que un
+    `historico/` con días nuevos nunca se volvía a mirar. El síntoma real:
+    algunos días subidos se reflejaban (por casualidad, cuando Streamlit
+    reiniciaba el proceso solo) y otros no, sin ningún patrón visible
+    desde afuera.
+
+    La corrección es simple: si `historico/` tiene MÁS días que los que ya
+    están cargados en la base, hay datos nuevos que todavía no se
+    incorporaron — hay que reconstruir de nuevo."""
+    if not db_existe:
+        return dias_en_historico > 0
+    return dias_en_historico > dias_en_base

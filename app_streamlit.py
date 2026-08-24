@@ -37,6 +37,7 @@ import streamlit as st
 
 from engine.consultas import (
     actualizar_override,
+    hace_falta_reconstruir,
     nivel_general_desde_divisiones,
     resumen_divisiones_desde_valores,
     valores_medidos_nacional,
@@ -53,15 +54,38 @@ st.set_page_config(page_title="Relevamiento de Precios", layout="wide")
 @st.cache_resource
 def _con():
     # `@st.cache_resource` garantiza que el CUERPO de esta funcion se
-    # ejecuta como maximo una vez, incluso con sesiones concurrentes — asi
-    # la reconstruccion desde historico/ nunca corre dos veces en paralelo
-    # (lo que causaba "database is locked" en produccion).
-    if not DB_PATH.exists():
-        historico = Path("historico")
-        respaldos = sorted(historico.glob("*.csv.gz")) if historico.exists() else []
-        if respaldos:
-            from scripts.reconstruir import reconstruir
-            reconstruir()
+    # ejecuta como maximo una vez por proceso, incluso con sesiones
+    # concurrentes — asi la reconstruccion desde historico/ nunca corre
+    # dos veces en paralelo (lo que causaba "database is locked").
+    #
+    # PERO ESO TIENE UNA CONSECUENCIA IMPORTANTE, que causo un bug real:
+    # el chequeo `if not DB_PATH.exists()` solo reconstruye la PRIMERA vez
+    # que el proceso arranca. Streamlit Cloud NO reinicia el proceso en
+    # cada `git push` — el codigo se actualiza, pero si el proceso de
+    # Python ya estaba corriendo, la base vieja sigue en el disco del
+    # servidor y esta funcion nunca vuelve a mirar `historico/` de nuevo,
+    # sin importar cuantos dias nuevos se hayan subido. Por eso un
+    # deploy actualizaba el codigo pero los datos nuevos "no aparecian"
+    # hasta que, por casualidad, Streamlit reiniciaba el proceso solo.
+    #
+    # LA CORRECCION: comparar cuantos dias hay en la base contra cuantos
+    # archivos hay en historico/ (ver hace_falta_reconstruir). Si
+    # historico/ tiene MAS dias que la base, quiere decir que se subieron
+    # datos nuevos despues de que este proceso arranco.
+    historico = Path("historico")
+    respaldos = sorted(historico.glob("*.csv.gz")) if historico.exists() else []
+
+    dias_en_base = 0
+    if DB_PATH.exists():
+        con_provisoria = conectar(DB_PATH)
+        dias_en_base = con_provisoria.execute(
+            "SELECT COUNT(DISTINCT fecha) FROM precios_raw").fetchone()[0]
+        con_provisoria.close()
+
+    if hace_falta_reconstruir(DB_PATH.exists(), dias_en_base, len(respaldos)):
+        from scripts.reconstruir import reconstruir
+        reconstruir()
+
     return conectar(DB_PATH)
 
 
@@ -120,32 +144,47 @@ if "overrides_division" not in st.session_state:
     st.session_state.overrides_division = {}   # {codigo_division: valor_pct}
 
 
-def _aplicar_override_division(codigo: str) -> None:
+def _aplicar_override_division(codigo: str, valor_medido: float | None) -> None:
     """Callback de los widgets de edicion a nivel division (checkbox 'usar'
     + number_input). Se ejecuta ANTES de que Streamlit vuelva a correr el
     script desde el principio — a diferencia de leer el valor del widget y
     guardarlo mas abajo en el mismo bucle donde se renderiza, que quedaba
     grabado DESPUES de que el nivel general ya se habia calculado mas
     arriba en ese mismo pase del script. Ver el comentario junto a donde
-    se usa esto, mas abajo, y tests/test_callbacks_edicion.py."""
+    se usa esto, mas abajo, y tests/test_callbacks_edicion.py.
+
+    `valor_medido`: al tildar "usar" por primera vez, el number_input
+    TODAVIA NO EXISTE en session_state (este callback corre antes de que
+    se dibuje) — sin este parametro, el valor caeria a 0.0 en vez de
+    precargar el dato ya medido, que es justo lo que se pidio: que la
+    persona tenga que TOCAR el numero solo si de verdad quiere cambiarlo,
+    no que arranque siempre en cero."""
+    default = valor_medido if valor_medido is not None else 0.0
     actualizar_override(
         st.session_state.overrides_division, codigo,
         st.session_state.get(f"chkdiv_{codigo}", False),
-        st.session_state.get(f"ovdiv_{codigo}", 0.0),
+        st.session_state.get(f"ovdiv_{codigo}", default),
     )
 
 
-def _aplicar_override_clase(codigo: str) -> None:
+def _aplicar_override_clase(codigo: str, valor_medido: float | None) -> None:
     """Igual que `_aplicar_override_division`, para las subcategorias."""
+    default = valor_medido if valor_medido is not None else 0.0
     actualizar_override(
         st.session_state.overrides_clase, codigo,
         st.session_state.get(f"chkcls_{codigo}", False),
-        st.session_state.get(f"ovcls_{codigo}", 0.0),
+        st.session_state.get(f"ovcls_{codigo}", default),
     )
 
 
 # ---------------------------------------------------------------- controles
 with st.sidebar:
+    if st.button("🔄 Actualizar datos", help="Forzá esto si acabás de subir días nuevos a "
+                                             "GitHub y no los ves reflejados abajo."):
+        st.cache_resource.clear()
+        st.cache_data.clear()
+        st.rerun()
+
     st.header("Período")
 
     d_max = date.fromisoformat(fmax)
@@ -288,18 +327,28 @@ for f in r.divisiones:
     # `on_change` corre el callback ANTES de que el script se re-ejecute
     # desde el principio, asi que el valor ya esta guardado cuando "r" se
     # calcula. Ver tests/test_callbacks_edicion.py.
+    # `f.variacion_pct` es el dato medido de ESTA fila antes de aplicar
+    # ningun override — sirve como valor de partida al tildar "usar", asi
+    # la persona solo tiene que tocar el numero si de verdad quiere
+    # cambiarlo. Si la division no tiene dato (fuente == "sin_dato"), no
+    # hay nada que precargar y arranca en 0.0 como antes.
+    valor_medido = f.variacion_pct if f.fuente != "sin_dato" else None
     actual = st.session_state.overrides_division.get(f.codigo)
     usar = cols[3].checkbox(
         "usar valor manual", value=(actual is not None),
         key=f"chkdiv_{f.codigo}", label_visibility="collapsed",
-        on_change=_aplicar_override_division, args=(f.codigo,),
+        on_change=_aplicar_override_division, args=(f.codigo, valor_medido),
     )
     if usar:
+        valor_por_defecto = actual if actual is not None else (
+            valor_medido if valor_medido is not None else 0.0)
         cols[4].number_input(
-            "valor %", value=actual if actual is not None else 0.0,
+            "valor %", value=valor_por_defecto,
             step=0.1, format="%.2f", key=f"ovdiv_{f.codigo}", label_visibility="collapsed",
-            on_change=_aplicar_override_division, args=(f.codigo,),
+            on_change=_aplicar_override_division, args=(f.codigo, valor_medido),
         )
+        if valor_medido is not None and actual is None:
+            cols[4].caption(f"↳ precargado con el dato medido ({valor_medido:+.2f}%)")
     else:
         cols[4].caption("(dato medido)" if f.fuente != "sin_dato" else "(sin dato)")
 
@@ -348,18 +397,27 @@ for d in divs_detalle:
 
             if mostrar_edicion:
                 clave = f.codigo
+                # Igual criterio que en las divisiones: si NO es un valor
+                # ya manual y hay dato medido, se usa como precarga al
+                # tildar "usar" — asi solo hace falta tocar el numero si
+                # de verdad se quiere cambiar.
+                valor_medido = f.variacion_pct if not f.es_manual else None
                 actual = st.session_state.overrides_clase.get(clave)
                 usar = cols[4].checkbox(
                     "usar", value=(actual is not None),
                     key=f"chkcls_{clave}", label_visibility="collapsed",
-                    on_change=_aplicar_override_clase, args=(clave,),
+                    on_change=_aplicar_override_clase, args=(clave, valor_medido),
                 )
                 if usar:
+                    valor_por_defecto = actual if actual is not None else (
+                        valor_medido if valor_medido is not None else 0.0)
                     cols[5].number_input(
-                        "valor %", value=actual if actual is not None else 0.0,
+                        "valor %", value=valor_por_defecto,
                         step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
-                        on_change=_aplicar_override_clase, args=(clave,),
+                        on_change=_aplicar_override_clase, args=(clave, valor_medido),
                     )
+                    if valor_medido is not None and actual is None:
+                        cols[5].caption(f"↳ precargado ({valor_medido:+.2f}%)")
 
         st.markdown("")
         medidas = [f for f in d.clases if f.variacion_pct is not None]

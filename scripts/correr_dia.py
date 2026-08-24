@@ -196,6 +196,17 @@ def main() -> None:
             print("Se esperan, adentro de esa carpeta, alguna de estas dos cosas:")
             print("  - los ZIP diarios de SEPA (ej. sepa_lunes.zip), o")
             print("  - las carpetas de fecha ya descomprimidas (ej. 2026-08-10/)")
+            # AUNQUE la carpeta este vacia, igual conviene revisar si hay
+            # respaldos desactualizados que reparar: esa reparacion no
+            # depende de tener los ZIP de SEPA a mano, trabaja sobre lo que
+            # ya esta en la base local. Antes, con la carpeta vacia, el
+            # comando se iba sin siquiera intentarlo. Solo tiene sentido si
+            # ya existe una base (sino no hay nada que respaldar, y crear
+            # una base vacia de la nada seria confuso).
+            if DB_PATH.exists():
+                con = conectar(DB_PATH)
+                _respaldar_automaticamente(con)
+                con.close()
             return
         if carpetas_fecha:
             print(f"  (detectadas {len(carpetas_fecha)} carpetas de fecha descomprimidas)")

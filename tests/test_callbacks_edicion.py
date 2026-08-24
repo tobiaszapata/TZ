@@ -91,3 +91,67 @@ def test_simulacion_del_contrato_on_change_de_streamlit():
         "el valor deberia estar disponible para el calculo del nivel "
         "general en el MISMO pase donde se cargo, no en el siguiente"
     )
+
+
+def test_precarga_usa_el_valor_medido_al_tildar_usar_por_primera_vez():
+    """El pedido: al tildar 'usar valor manual' en una division/subcategoria
+    que SI tiene dato medido, el numero tiene que arrancar en ese valor
+    medido -- no en 0.0 -- para que la persona solo tenga que TOCARLO si
+    de verdad quiere cambiarlo."""
+    session_state = {"overrides_division": {}, "chkdiv_01": True}
+    # OJO: 'ovdiv_01' todavia NO existe en session_state -- es el instante
+    # exacto de tildar la casilla por primera vez, antes de que Streamlit
+    # dibuje el number_input.
+    valor_medido = 4.75  # el dato medido de esa division, tal como lo ve la app
+
+    def callback_on_change():
+        default = valor_medido if valor_medido is not None else 0.0
+        actualizar_override(
+            session_state["overrides_division"], "01",
+            session_state["chkdiv_01"],
+            session_state.get("ovdiv_01", default),
+        )
+
+    callback_on_change()
+    assert session_state["overrides_division"]["01"] == 4.75, (
+        "deberia precargar el valor medido, no caer en 0.0"
+    )
+
+
+def test_precarga_no_pisa_un_valor_que_la_persona_ya_escribio():
+    """Si la persona YA escribio un numero propio, tildar/destildar y
+    volver a tildar no debe volver a pisarlo con el valor medido -- solo
+    se precarga la PRIMERA vez que se activa la edicion para esa fila."""
+    session_state = {"overrides_division": {"01": 99.0}, "chkdiv_01": True, "ovdiv_01": 99.0}
+    valor_medido = 4.75
+
+    def callback_on_change():
+        default = valor_medido if valor_medido is not None else 0.0
+        actualizar_override(
+            session_state["overrides_division"], "01",
+            session_state["chkdiv_01"],
+            session_state.get("ovdiv_01", default),
+        )
+
+    callback_on_change()
+    assert session_state["overrides_division"]["01"] == 99.0, (
+        "no deberia pisar el valor que la persona ya habia escrito"
+    )
+
+
+def test_sin_dato_medido_precarga_en_cero():
+    """Una division sin ninguna cobertura (Comunicacion, por ejemplo) no
+    tiene nada para precargar -- arranca en 0.0 como antes."""
+    session_state = {"overrides_division": {}, "chkdiv_08": True}
+    valor_medido = None  # sin dato: Comunicacion no tiene cobertura de SEPA
+
+    def callback_on_change():
+        default = valor_medido if valor_medido is not None else 0.0
+        actualizar_override(
+            session_state["overrides_division"], "08",
+            session_state["chkdiv_08"],
+            session_state.get("ovdiv_08", default),
+        )
+
+    callback_on_change()
+    assert session_state["overrides_division"]["08"] == 0.0
