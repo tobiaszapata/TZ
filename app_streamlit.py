@@ -89,6 +89,14 @@ def _con():
         # acumulados puede llevar de decenas de segundos a un par de
         # minutos — mostrarlo explicitamente evita que parezca que la
         # aplicacion esta colgada quieta sin ningun aviso.
+        #
+        # EL try/except DE ABAJO ES NUEVO: antes, si reconstruir() tiraba
+        # una excepcion (un archivo corrupto, un problema de encoding en
+        # un dia puntual, lo que sea), esa excepcion se perdia o quedaba
+        # cacheada de forma confusa, y la persona solo veia "No hay datos
+        # todavia" — un mensaje que sugiere "no cargaste nada", cuando en
+        # realidad SI habia datos pero la reconstruccion fallo a mitad de
+        # camino. Ahora, si eso pasa, se muestra el error real.
         with st.spinner(
             f"Preparando los datos ({len(respaldos)} días acumulados)... "
             "esto puede tardar un momento la primera vez que se abre la app "
@@ -96,7 +104,25 @@ def _con():
             "solo esperar."
         ):
             from scripts.reconstruir import reconstruir
-            reconstruir()
+            try:
+                filas = reconstruir()
+                if filas == 0:
+                    st.warning(
+                        f"Se encontraron {len(respaldos)} archivo(s) en historico/, pero la "
+                        "reconstrucción no insertó ninguna fila. Puede que los archivos estén "
+                        "vacíos o en un formato inesperado — revisar con "
+                        "`python -m scripts.diagnosticar_estado` en la máquina donde se cargaron."
+                    )
+            except Exception as exc:
+                st.error(
+                    f"La reconstrucción de la base falló con un error real (no es que falten "
+                    f"datos): **{type(exc).__name__}: {exc}**\n\n"
+                    "Esto normalmente indica que algún archivo de `historico/` está corrupto, "
+                    "vacío, o tiene un formato distinto al esperado. Para encontrar cuál: "
+                    "correr `python -m scripts.reconstruir` en tu computadora (no en Streamlit) "
+                    "y ver en qué archivo específico se corta."
+                )
+                st.stop()
 
     return conectar(DB_PATH)
 

@@ -1,0 +1,7 @@
+# Los respaldos comprimidos son BINARIOS, sin ambigüedad. Sin esto, Git
+# intenta detectar automáticamente si un archivo es texto o binario, y en
+# ciertas configuraciones de Windows (core.autocrlf=true) podría intentar
+# normalizar finales de línea dentro de un .gz — lo que lo corrompería en
+# silencio. Declararlo explícito elimina esa duda para siempre, sin costo.
+historico/*.csv.gz -text -diff
+*.db -text -diff

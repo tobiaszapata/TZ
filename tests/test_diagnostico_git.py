@@ -12,8 +12,25 @@ publicada porque el paso de git nunca se completo.
 
 Estos tests usan repositorios git REALES (creados en carpetas temporales),
 no simulaciones — es la unica forma honesta de probar algo que depende
-del comportamiento real de git."""
+del comportamiento real de git.
 
+NOTA DE COMPATIBILIDAD CON WINDOWS (bug real encontrado en produccion):
+la version anterior de este archivo hacia `os.chdir(cwd)` para cada test y
+NUNCA VOLVIA al directorio original. En Linux/Mac eso no rompia nada
+visible, pero en Windows el proceso de Python quedaba parado DENTRO de la
+carpeta temporal — y Windows se niega a borrar una carpeta que es el
+directorio de trabajo actual de un proceso vivo. El resultado era
+`PermissionError: […] esta siendo utilizado por otro proceso` al terminar
+cada test, justo cuando `tempfile.TemporaryDirectory()` intenta limpiarse
+sola. Los tests en si pasaban (los `assert` nunca fallaban), pero el
+runner los marcaba como ERROR igual porque el error saltaba en la limpieza.
+
+La correccion: SIEMPRE volver al directorio original despues de consultar
+el estado de git, sin importar si el test paso o fallo (por eso se usa
+try/finally).
+"""
+
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -32,23 +49,32 @@ def _repo_con_historico(tmp: Path) -> Path:
     return tmp
 
 
-def _importar_estado_de_git(cwd: Path) -> str:
-    import sys
-    import os
+def _consultar_estado_de_git(cwd: Path) -> str:
+    """Corre `_estado_de_git()` con el directorio de trabajo puesto en
+    `cwd`, y SIEMPRE lo devuelve a donde estaba antes de salir — incluso
+    si algo dentro tira una excepcion. Ver la nota de Windows arriba del
+    archivo: sin este `finally`, el proceso quedaba parado dentro de una
+    carpeta temporal que despues no se podia borrar."""
     raiz = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(raiz))
-    os.chdir(cwd)
-    # reimport limpio por si otro test ya lo importo con un cwd distinto
-    import importlib
-    import scripts.diagnosticar_estado as mod
-    importlib.reload(mod)
-    return mod._estado_de_git()
+    import sys
+    if str(raiz) not in sys.path:
+        sys.path.insert(0, str(raiz))
+
+    anterior = Path.cwd()
+    try:
+        os.chdir(cwd)
+        import importlib
+        import scripts.diagnosticar_estado as mod
+        importlib.reload(mod)
+        return mod._estado_de_git()
+    finally:
+        os.chdir(anterior)
 
 
 def test_detecta_archivo_sin_commitear():
     with tempfile.TemporaryDirectory() as t:
         repo = _repo_con_historico(Path(t))
-        resultado = _importar_estado_de_git(repo)
+        resultado = _consultar_estado_de_git(repo)
         assert "SIN SUBIR A GITHUB" in resultado
 
 
@@ -70,7 +96,7 @@ def test_detecta_commit_sin_pushear():
             _git(["add", "historico/"], repo)
             _git(["commit", "-q", "-m", "arreglo respaldo"], repo)
 
-            resultado = _importar_estado_de_git(repo)
+            resultado = _consultar_estado_de_git(repo)
             assert "commiteados" in resultado and "no se subieron" in resultado
 
 
@@ -87,7 +113,7 @@ def test_todo_commiteado_y_pusheado_da_ok():
             _git(["branch", "-M", "main"], repo)
             _git(["push", "-u", "-q", "origin", "main"], repo)
 
-            resultado = _importar_estado_de_git(repo)
+            resultado = _consultar_estado_de_git(repo)
             assert "commiteado y subido" in resultado
 
 
@@ -95,5 +121,5 @@ def test_sin_repositorio_de_git_no_rompe():
     with tempfile.TemporaryDirectory() as t:
         # ni siquiera 'git init' -- carpeta comun y corriente
         (Path(t) / "historico").mkdir()
-        resultado = _importar_estado_de_git(Path(t))
+        resultado = _consultar_estado_de_git(Path(t))
         assert "no es un repositorio de git" in resultado

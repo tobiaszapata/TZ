@@ -64,6 +64,29 @@ def _estado_de_git() -> str:
         return ("no se pudo comparar contra GitHub (no hay rama remota configurada).\n"
                 f"    Si nunca corriste 'git push -u origin main', hacelo una vez;\n"
                 f"    después este chequeo va a poder confirmar si falta subir algo.")
+
+    # IMPORTANTE: lo de arriba compara contra la referencia de la rama
+    # remota GUARDADA LOCALMENTE (lo que Git recuerda del ultimo
+    # fetch/push), NO contra GitHub en vivo. Si por algun motivo esa
+    # referencia quedo desactualizada (por ejemplo, alguien tocó el
+    # repositorio desde otro lado, o el ultimo push no actualizo bien la
+    # referencia local pese a haber llegado al servidor), esto podria decir
+    # "todo subido" sin serlo de verdad. `git fetch` actualiza esa
+    # referencia consultando al servidor real antes de comparar.
+    fetch = subprocess.run(["git", "fetch", "--quiet"], capture_output=True,
+                          text=True, timeout=20)
+    if fetch.returncode == 0:
+        sin_pushear = subprocess.run(
+            ["git", "log", "@{u}..HEAD", "--oneline", "--", str(CARPETA)],
+            capture_output=True, text=True, timeout=10,
+        )
+    else:
+        return (f"no se pudo confirmar contra GitHub en vivo (git fetch falló: "
+                f"{fetch.stderr.strip()[:200]}).\n"
+                f"    Puede ser un problema de conexión o de credenciales. El resultado "
+                f"de abajo es SOLO según lo que esta máquina recordaba del último contacto "
+                f"con GitHub, no está confirmado en este momento.")
+
     if sin_pushear.stdout.strip():
         n = len(sin_pushear.stdout.strip().splitlines())
         return (f"Hay {n} commit(s) CON CAMBIOS EN historico/ que están commiteados\n"
