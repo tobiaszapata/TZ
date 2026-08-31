@@ -121,9 +121,20 @@ def _con():
 
 @st.cache_data(ttl=300)
 def _rango_disponible():
-    if not DB_PATH.exists():
-        return None, None, 0
-    cur = _con().execute("SELECT MIN(fecha), MAX(fecha), COUNT(DISTINCT fecha) FROM precios_raw")
+    # BUG REAL QUE ESTO CORRIGE: esta funcion tenia un atajo
+    # `if not DB_PATH.exists(): return None, None, 0` ANTES de llamar a
+    # _con(). Eso es exactamente incorrecto en un arranque en frio real
+    # (Streamlit Cloud nunca tiene la base local hasta que _con() la
+    # reconstruye desde historico/): la funcion devolvia "no hay datos"
+    # de inmediato, sin darle a _con() la oportunidad de reconstruir nada.
+    # El sintoma era indistinguible de "nunca se cargo nada", aunque
+    # historico/ tuviera 22 dias bien subidos a GitHub.
+    #
+    # La correccion es simple: llamar a _con() SIEMPRE primero (es la unica
+    # funcion que sabe si hace falta reconstruir y lo hace si corresponde),
+    # y recien despues consultar la base que ella devuelve.
+    con = _con()
+    cur = con.execute("SELECT MIN(fecha), MAX(fecha), COUNT(DISTINCT fecha) FROM precios_raw")
     return cur.fetchone()
 
 

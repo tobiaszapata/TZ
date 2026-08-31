@@ -35,6 +35,7 @@ MODULOS = [
     "tests.test_diagnosticar_estado",
     "tests.test_diagnostico_git",
     "tests.test_validar_historico",
+    "tests.test_arranque_en_frio",
     "tests.test_deteccion_reconstruccion",
     "tests.test_confirmacion_fechas",
     "tests.test_nombre_producto_vacio",
