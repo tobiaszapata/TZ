@@ -20,17 +20,33 @@ congelado en el formato viejo significa que la tabla `productos` queda
 vacia ahi, y CUALQUIER producto cae al codigo como nombre de respaldo
 (ver storage/db.py::nombres_de_productos) — de ahi que se viera el mismo
 valor en las dos columnas para todos los productos, no unos pocos.
+
+NOTA (corrigiendo un bug de produccion distinto, encontrado despues): los
+scripts anclan DB_PATH y CARPETA a la ubicacion del PROPIO ARCHIVO del
+script, no al directorio de trabajo del proceso — porque Streamlit Cloud
+podia arrancar con un cwd distinto al de la raiz del repositorio y la ruta
+relativa vieja rompia todo en silencio. Por eso estos tests copian el
+proyecto ENTERO a una carpeta temporal aislada en vez de correr el script
+con PYTHONPATH apuntando a la raiz real y el cwd apuntando a otro lado —
+ese acoplamiento ya no refleja como funciona el script de verdad.
 """
 
 import gzip
 import csv
+import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
 
-from scripts.exportar_dia import VERSION_FORMATO, version_del_respaldo
+_RAIZ_REAL = Path(__file__).resolve().parent.parent
+_CARPETAS_A_COPIAR = ["scripts", "engine", "config", "collectors", "storage"]
+
+
+def _copiar_proyecto_a(destino: Path) -> None:
+    for carpeta in _CARPETAS_A_COPIAR:
+        shutil.copytree(_RAIZ_REAL / carpeta, destino / carpeta)
 
 
 def _respaldo_viejo(path: Path, fecha: str, ean: str = "7790001") -> None:
@@ -54,7 +70,15 @@ def _zip_de_prueba(carpeta: Path, fecha: str, ean: str = "7790001", nombre: str 
         )
 
 
+def _correr(proyecto: Path, args: list[str]):
+    return subprocess.run(
+        [sys.executable, "-m", "scripts.correr_dia"] + args,
+        cwd=proyecto, capture_output=True, text=True, timeout=60,
+    )
+
+
 def test_version_del_respaldo_detecta_formato_viejo():
+    from scripts.exportar_dia import VERSION_FORMATO, version_del_respaldo
     with tempfile.TemporaryDirectory() as t:
         viejo = Path(t) / "2026-08-09.csv.gz"
         _respaldo_viejo(viejo, "2026-08-09")
@@ -69,44 +93,33 @@ def test_correr_dia_regenera_respaldo_viejo_aunque_no_haya_archivos_nuevos():
       (a) informar '0 archivos cargados' (correcto: no habia nada nuevo),
       (b) IGUAL regenerar el respaldo viejo, para que incluya el nombre.
     """
-    raiz = Path(__file__).resolve().parent.parent
+    from scripts.exportar_dia import VERSION_FORMATO, version_del_respaldo
     with tempfile.TemporaryDirectory() as t:
-        t = Path(t)
-        datos = t / "datos_sepa"
-        historico = t / "historico"
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        datos = proyecto / "datos_sepa"
+        historico = proyecto / "historico"
         _zip_de_prueba(datos / "2026-08-09", "2026-08-09")
         _respaldo_viejo(historico / "2026-08-09.csv.gz", "2026-08-09")
 
         assert version_del_respaldo(historico / "2026-08-09.csv.gz") == 1
 
-        import os
-        env = {**os.environ, "PYTHONPATH": str(raiz)}
-
         # primera corrida: carga el dia (todavia no esta en la base)
-        subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(datos)],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
-        )
+        _correr(proyecto, ["--carpeta", str(datos)])
 
-        # segunda corrida: el dia YA esta cargado (0 nuevos), pero el
-        # respaldo sigue en formato viejo porque la primera corrida lo
-        # regenero en formato nuevo ya... hagamos la prueba real forzando
-        # el respaldo viejo DESPUES de la carga, simulando que quedo de
-        # una version anterior del programa:
+        # segunda corrida: el dia YA esta cargado (0 nuevos), pero forzamos
+        # el respaldo de vuelta a formato viejo, simulando que quedo de una
+        # version anterior del programa:
         _respaldo_viejo(historico / "2026-08-09.csv.gz", "2026-08-09")
         assert version_del_respaldo(historico / "2026-08-09.csv.gz") == 1
 
-        r2 = subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(datos)],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
-        )
+        r2 = _correr(proyecto, ["--carpeta", str(datos)])
 
-        assert "Listo: 0 archivos cargados." in r2.stdout, r2.stdout
+        assert "Listo: 0 archivos cargados." in r2.stdout, r2.stdout + r2.stderr
         assert version_del_respaldo(historico / "2026-08-09.csv.gz") == VERSION_FORMATO, (
             "el respaldo viejo NO se regenero aunque no hubo archivos nuevos que cargar"
         )
 
-        # y el nombre tiene que estar de verdad adentro del archivo
         with gzip.open(historico / "2026-08-09.csv.gz", "rt") as fh:
             contenido = fh.read()
         assert "Banana x kg" in contenido
@@ -119,15 +132,16 @@ def test_repara_respaldos_viejos_aunque_la_carpeta_de_sepa_este_vacia():
     base local ya cargada. Reproduce exactamente ese escenario: una base
     con un dia cargado y su respaldo en formato viejo, y una carpeta de
     SEPA completamente vacia."""
-    raiz = Path(__file__).resolve().parent.parent
+    from scripts.exportar_dia import VERSION_FORMATO, version_del_respaldo
     with tempfile.TemporaryDirectory() as t:
-        t = Path(t)
-        (t / "datos_sepa").mkdir()  # vacia a proposito
-        historico = t / "historico"
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        (proyecto / "datos_sepa").mkdir()  # vacia a proposito
+        historico = proyecto / "historico"
         _respaldo_viejo(historico / "2026-08-09.csv.gz", "2026-08-09")
 
-        # armar una base local con ese mismo dia cargado, en la carpeta de trabajo
-        import subprocess
+        # armar una base local con ese mismo dia cargado, DENTRO de la
+        # copia aislada del proyecto (para que quede en su misma raiz)
         script = (
             "from pathlib import Path\n"
             "from engine.index_elemental import ObservacionVariedad\n"
@@ -137,16 +151,11 @@ def test_repara_respaldos_viejos_aunque_la_carpeta_de_sepa_este_vacia():
             "'2026-08-09','7790001','C1',100.0,'Banana x kg',region='GBA'),'01.1.6')])\n"
             "con.close()\n"
         )
-        import os
-        env = {**os.environ, "PYTHONPATH": str(raiz)}
-        subprocess.run([sys.executable, "-c", script], cwd=t, env=env, timeout=30)
+        subprocess.run([sys.executable, "-c", script], cwd=proyecto, timeout=30)
 
         assert version_del_respaldo(historico / "2026-08-09.csv.gz") == 1
 
-        r = subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(t / "datos_sepa")],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
-        )
+        r = _correr(proyecto, ["--carpeta", str(proyecto / "datos_sepa")])
 
         assert version_del_respaldo(historico / "2026-08-09.csv.gz") == VERSION_FORMATO, (
             "el respaldo viejo no se reparo aunque datos_sepa/ estuviera vacia:\n" + r.stdout

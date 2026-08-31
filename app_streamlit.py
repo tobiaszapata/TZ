@@ -46,7 +46,20 @@ from engine.consultas import (
 from engine.fechas import acotar_rango, calcular_preset, hace_falta_confirmar
 from storage.db import conectar
 
-DB_PATH = Path("relevamiento_precios.db")
+# ANCLADAS A LA UBICACION DE ESTE ARCHIVO, no al directorio de trabajo del
+# proceso. Antes eran rutas relativas (Path("relevamiento_precios.db"),
+# Path("historico")), que dependen de DESDE DONDE se ejecuta el proceso.
+# En la computadora del usuario eso siempre funciona porque `streamlit run`
+# se corre parado en la carpeta del proyecto — pero Streamlit Cloud puede,
+# en ciertas condiciones (un redeploy, un reinicio del contenedor), arrancar
+# el proceso con el directorio de trabajo apuntando a otro lado. Cuando eso
+# pasa, `Path("historico")` apunta a una carpeta vacia o inexistente aunque
+# el repositorio SI tenga los archivos — y el sintoma es exactamente
+# "No hay datos todavia" pese a que todo este bien subido a GitHub. Anclar
+# al archivo (`Path(__file__).parent`) elimina esa dependencia por completo.
+RAIZ = Path(__file__).resolve().parent
+DB_PATH = RAIZ / "relevamiento_precios.db"
+CARPETA_HISTORICO = RAIZ / "historico"
 
 st.set_page_config(page_title="Relevamiento de Precios", layout="wide")
 
@@ -58,21 +71,32 @@ def _con():
     # concurrentes — asi la reconstruccion desde historico/ nunca corre
     # dos veces en paralelo (lo que causaba "database is locked").
     #
-    # PERO ESO TIENE UNA CONSECUENCIA IMPORTANTE, que causo un bug real:
-    # el chequeo `if not DB_PATH.exists()` solo reconstruye la PRIMERA vez
-    # que el proceso arranca. Streamlit Cloud NO reinicia el proceso en
-    # cada `git push` — el codigo se actualiza, pero si el proceso de
-    # Python ya estaba corriendo, la base vieja sigue en el disco del
-    # servidor y esta funcion nunca vuelve a mirar `historico/` de nuevo,
-    # sin importar cuantos dias nuevos se hayan subido. Por eso un
-    # deploy actualizaba el codigo pero los datos nuevos "no aparecian"
-    # hasta que, por casualidad, Streamlit reiniciaba el proceso solo.
+    # REGLA IMPORTANTE, causante de un bug real: esta funcion NUNCA debe
+    # llamar a st.error/st.warning/st.stop() DENTRO DE SI MISMA. Una
+    # version anterior lo hacia (para avisar si la reconstruccion
+    # fallaba), y el resultado fue que Streamlit podia cachear ese estado
+    # de "fallo" como si fuera el resultado normal de la funcion — la
+    # proxima vez que se llamaba _con(), en vez de reintentar, devolvia
+    # directamente ese estado congelado. El sintoma era indistinguible de
+    # "nunca hubo datos": siempre el mismo mensaje, sin importar cuantas
+    # veces se reintentara. La correccion: esta funcion SOLO conecta y
+    # reconstruye: si algo falla, deja que la excepcion se propague hacia
+    # afuera sin atraparla aca. Quien la llama (mas abajo, FUERA de
+    # cualquier cache) es responsable de mostrar el error.
+    #
+    # PERO ESO TIENE OTRA CONSECUENCIA IMPORTANTE, que causo un bug real
+    # distinto: el chequeo `if not DB_PATH.exists()` solo reconstruye la
+    # PRIMERA vez que el proceso arranca. Streamlit Cloud NO reinicia el
+    # proceso en cada `git push` — el codigo se actualiza, pero si el
+    # proceso de Python ya estaba corriendo, la base vieja sigue en el
+    # disco del servidor y esta funcion nunca vuelve a mirar `historico/`
+    # de nuevo, sin importar cuantos dias nuevos se hayan subido.
     #
     # LA CORRECCION: comparar cuantos dias hay en la base contra cuantos
     # archivos hay en historico/ (ver hace_falta_reconstruir). Si
     # historico/ tiene MAS dias que la base, quiere decir que se subieron
     # datos nuevos despues de que este proceso arranco.
-    historico = Path("historico")
+    historico = CARPETA_HISTORICO
     respaldos = sorted(historico.glob("*.csv.gz")) if historico.exists() else []
 
     dias_en_base = 0
@@ -83,20 +107,6 @@ def _con():
         con_provisoria.close()
 
     if hace_falta_reconstruir(DB_PATH.exists(), dias_en_base, len(respaldos)):
-        # Este paso es el que tarda cuando el servidor arranca "en frio"
-        # (recien despertado, o primera vez): reconstruye TODA la base
-        # leyendo un archivo por cada dia cargado. Con muchos dias
-        # acumulados puede llevar de decenas de segundos a un par de
-        # minutos — mostrarlo explicitamente evita que parezca que la
-        # aplicacion esta colgada quieta sin ningun aviso.
-        #
-        # EL try/except DE ABAJO ES NUEVO: antes, si reconstruir() tiraba
-        # una excepcion (un archivo corrupto, un problema de encoding en
-        # un dia puntual, lo que sea), esa excepcion se perdia o quedaba
-        # cacheada de forma confusa, y la persona solo veia "No hay datos
-        # todavia" — un mensaje que sugiere "no cargaste nada", cuando en
-        # realidad SI habia datos pero la reconstruccion fallo a mitad de
-        # camino. Ahora, si eso pasa, se muestra el error real.
         with st.spinner(
             f"Preparando los datos ({len(respaldos)} días acumulados)... "
             "esto puede tardar un momento la primera vez que se abre la app "
@@ -104,25 +114,7 @@ def _con():
             "solo esperar."
         ):
             from scripts.reconstruir import reconstruir
-            try:
-                filas = reconstruir()
-                if filas == 0:
-                    st.warning(
-                        f"Se encontraron {len(respaldos)} archivo(s) en historico/, pero la "
-                        "reconstrucción no insertó ninguna fila. Puede que los archivos estén "
-                        "vacíos o en un formato inesperado — revisar con "
-                        "`python -m scripts.diagnosticar_estado` en la máquina donde se cargaron."
-                    )
-            except Exception as exc:
-                st.error(
-                    f"La reconstrucción de la base falló con un error real (no es que falten "
-                    f"datos): **{type(exc).__name__}: {exc}**\n\n"
-                    "Esto normalmente indica que algún archivo de `historico/` está corrupto, "
-                    "vacío, o tiene un formato distinto al esperado. Para encontrar cuál: "
-                    "correr `python -m scripts.reconstruir` en tu computadora (no en Streamlit) "
-                    "y ver en qué archivo específico se corta."
-                )
-                st.stop()
+            reconstruir()  # si falla, la excepcion se propaga tal cual — no se atrapa aca
 
     return conectar(DB_PATH)
 
@@ -164,12 +156,50 @@ def _color(v):
 st.title("Relevamiento de Precios")
 st.caption("Índice de precios al consumidor · nivel nacional · fuente SEPA · metodología INDEC N°32")
 
-fmin, fmax, ndias = _rango_disponible()
+# El boton de refresco se dibuja SIEMPRE, ANTES que cualquier posible
+# st.stop() por error — asi, si la app queda mostrando "no hay datos" o un
+# error, la persona tiene una forma de reintentar sin depender de
+# encontrar "Manage app -> Reboot app" en Streamlit Cloud.
+with st.sidebar:
+    if st.button("🔄 Actualizar datos", help="Forzá esto si acabás de subir días nuevos a "
+                                             "GitHub y no los ves reflejados abajo, o si la "
+                                             "app está mostrando un error viejo."):
+        st.cache_resource.clear()
+        st.cache_data.clear()
+        st.session_state.pop("fechas_confirmadas", None)
+        st.rerun()
+
+# La llamada a _con()/_rango_disponible() se hace ACA, en el cuerpo
+# principal del script — NUNCA dentro de una funcion decorada con
+# @st.cache_resource o @st.cache_data. Esto es a proposito: el cuerpo
+# principal se re-ejecuta COMPLETO en cada interaccion (cada rerun), asi
+# que un try/except puesto aca SIEMPRE se vuelve a evaluar — nunca queda
+# "pegado" mostrando un resultado viejo cacheado. Ver el comentario largo
+# dentro de _con() (mas arriba) para el detalle del bug que esto corrige:
+# un error dentro de una funcion cacheada podia quedar congelado, y ni
+# "Clear cache" ni "Rerun" lo destrababan de forma confiable — porque el
+# boton que los limpia ni siquiera se llegaba a dibujar (estaba despues
+# del st.stop() del error).
+try:
+    fmin, fmax, ndias = _rango_disponible()
+except Exception as exc:
+    st.error(
+        f"La reconstrucción de la base falló con un error real (esto NO significa "
+        f"que falten datos): **{type(exc).__name__}: {exc}**\n\n"
+        "Esto normalmente indica que algún archivo de `historico/` está corrupto, vacío, "
+        "o tiene un formato distinto al esperado. Para encontrar cuál, corré en tu "
+        "computadora (no en Streamlit):\n\n"
+        "`python -m scripts.validar_historico`\n\n"
+        "Si ya lo corregiste, apretá **'🔄 Actualizar datos'** en el panel izquierdo."
+    )
+    st.stop()
+
 if not fmin:
     st.error(
         "No hay datos todavía. Si estás en tu computadora, corré "
         "`python -m scripts.correr_dia --carpeta datos_sepa/`. Si esto es la app "
-        "publicada, todavía no hay ningún día guardado en `historico/`."
+        "publicada, todavía no hay ningún día guardado en `historico/` — o hace falta "
+        "apretar **'🔄 Actualizar datos'** en el panel izquierdo, arriba de todo."
     )
     st.stop()
 
@@ -217,13 +247,6 @@ def _aplicar_override_clase(codigo: str, valor_medido: float | None) -> None:
 
 # ---------------------------------------------------------------- controles
 with st.sidebar:
-    if st.button("🔄 Actualizar datos", help="Forzá esto si acabás de subir días nuevos a "
-                                             "GitHub y no los ves reflejados abajo."):
-        st.cache_resource.clear()
-        st.cache_data.clear()
-        st.session_state.pop("fechas_confirmadas", None)
-        st.rerun()
-
     st.header("Período")
 
     d_max = date.fromisoformat(fmax)

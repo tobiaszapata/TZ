@@ -54,7 +54,12 @@ def _consultar_estado_de_git(cwd: Path) -> str:
     `cwd`, y SIEMPRE lo devuelve a donde estaba antes de salir — incluso
     si algo dentro tira una excepcion. Ver la nota de Windows arriba del
     archivo: sin este `finally`, el proceso quedaba parado dentro de una
-    carpeta temporal que despues no se podia borrar."""
+    carpeta temporal que despues no se podia borrar.
+
+    Pasa `cwd / "historico"` explicitamente como la carpeta a revisar: en
+    produccion, `_estado_de_git()` usa por defecto `CARPETA` (anclada a la
+    raiz REAL del proyecto — ver scripts/diagnosticar_estado.py), pero acá
+    se necesita apuntar al repositorio de PRUEBA aislado, no al real."""
     raiz = Path(__file__).resolve().parent.parent
     import sys
     if str(raiz) not in sys.path:
@@ -66,7 +71,7 @@ def _consultar_estado_de_git(cwd: Path) -> str:
         import importlib
         import scripts.diagnosticar_estado as mod
         importlib.reload(mod)
-        return mod._estado_de_git()
+        return mod._estado_de_git(cwd / "historico")
     finally:
         os.chdir(anterior)
 

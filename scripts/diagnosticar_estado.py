@@ -21,12 +21,18 @@ from pathlib import Path
 from scripts.exportar_dia import VERSION_FORMATO, dias_en_base, version_del_respaldo
 from storage.db import conectar
 
-DB_PATH = Path("relevamiento_precios.db")
-CARPETA = Path("historico")
+# Ancladas al archivo, no al directorio de trabajo del proceso —
+# ver la explicacion completa en scripts/reconstruir.py.
+RAIZ = Path(__file__).resolve().parent.parent
+DB_PATH = RAIZ / "relevamiento_precios.db"
+CARPETA = RAIZ / "historico"
 
 
-def _estado_de_git() -> str:
-    """Revisa si historico/ tiene cambios sin subir a GitHub.
+def _estado_de_git(carpeta: Path = CARPETA) -> str:
+    """Revisa si `carpeta` tiene cambios sin subir a GitHub. Por defecto
+    revisa `CARPETA` (historico/ de este proyecto), pero acepta un
+    parametro para poder testear contra un repositorio de prueba aislado
+    sin depender de la ubicacion real del proyecto.
 
     POR QUE ESTO SE AGREGO: la version anterior de este diagnostico solo
     miraba la base local y la carpeta historico/ LOCAL — nunca chequeaba si
@@ -46,7 +52,7 @@ def _estado_de_git() -> str:
         return "git no esta instalado en esta terminal"
 
     sin_commitear = subprocess.run(
-        ["git", "status", "--porcelain", "--", str(CARPETA)],
+        ["git", "status", "--porcelain", "--", str(carpeta)],
         capture_output=True, text=True, timeout=10,
     ).stdout.strip()
 
@@ -57,7 +63,7 @@ def _estado_de_git() -> str:
                 f"    Streamlit Cloud NO puede ver estos cambios hasta que se suban.")
 
     sin_pushear = subprocess.run(
-        ["git", "log", "@{u}..HEAD", "--oneline", "--", str(CARPETA)],
+        ["git", "log", "@{u}..HEAD", "--oneline", "--", str(carpeta)],
         capture_output=True, text=True, timeout=10,
     )
     if sin_pushear.returncode != 0:
@@ -77,7 +83,7 @@ def _estado_de_git() -> str:
                           text=True, timeout=20)
     if fetch.returncode == 0:
         sin_pushear = subprocess.run(
-            ["git", "log", "@{u}..HEAD", "--oneline", "--", str(CARPETA)],
+            ["git", "log", "@{u}..HEAD", "--oneline", "--", str(carpeta)],
             capture_output=True, text=True, timeout=10,
         )
     else:

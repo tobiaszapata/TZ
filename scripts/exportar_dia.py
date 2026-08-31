@@ -44,8 +44,11 @@ from pathlib import Path
 
 from storage.db import conectar
 
-DB_PATH = Path("relevamiento_precios.db")
-CARPETA = Path("historico")
+# Mismo motivo que en scripts/reconstruir.py: anclado al archivo, no al
+# directorio de trabajo del proceso que lo ejecuta.
+RAIZ = Path(__file__).resolve().parent.parent
+DB_PATH = RAIZ / "relevamiento_precios.db"
+CARPETA = RAIZ / "historico"
 
 COLUMNAS = ["fecha", "ean_o_id", "clase_codigo", "comercio", "precio", "region", "nombre_producto"]
 

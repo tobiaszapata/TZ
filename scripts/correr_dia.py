@@ -46,7 +46,12 @@ from collectors.sepa.ingesta import (
 from collectors.sepa.parser import parsear_csv
 from storage.db import conectar, insertar_observaciones, registrar_corrida
 
-DB_PATH = Path("relevamiento_precios.db")
+# Anclado al archivo por consistencia con el resto de scripts/ (ver la
+# explicacion en reconstruir.py) — aunque este script en particular
+# siempre se corre a mano, parado en la carpeta del proyecto, asi que la
+# ruta relativa nunca causo el bug real que si afecto a Streamlit Cloud.
+RAIZ = Path(__file__).resolve().parent.parent
+DB_PATH = RAIZ / "relevamiento_precios.db"
 
 RE_FECHA_GUION = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
 RE_FECHA_JUNTA = re.compile(r"(20\d{2})(\d{2})(\d{2})")

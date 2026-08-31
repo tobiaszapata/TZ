@@ -12,13 +12,41 @@ tiempo perdido era real y crecia con cada dia acumulado en la carpeta.
 Estos tests usan `subprocess` para invocar el script tal cual lo hace el
 usuario desde la terminal, no importan sus funciones internas — es la
 forma mas fiel de probar un script pensado para la linea de comandos.
-"""
 
+CAMBIO IMPORTANTE (corrigiendo un bug real de produccion): los scripts
+ahora anclan DB_PATH y CARPETA a la ubicacion del PROPIO ARCHIVO del
+script (`Path(__file__).resolve().parent.parent`), no al directorio de
+trabajo (`cwd`) del proceso que los ejecuta. Esto se hizo porque Streamlit
+Cloud podia arrancar el proceso con un `cwd` distinto al de la raiz del
+repositorio, y con la ruta relativa vieja eso hacia que la app buscara
+`historico/` en el lugar equivocado — silenciosamente, sin ningun error,
+mostrando "No hay datos todavia" pese a que los datos SI estaban bien
+subidos a GitHub.
+
+Como consecuencia, estos tests YA NO PUEDEN simplemente correr el script
+con `cwd` apuntando a un directorio temporal y `PYTHONPATH` apuntando a la
+raiz real — eso mezclaba "el codigo vive en un lado" con "los datos se
+crean en otro", que es exactamente el acoplamiento fragil que causo el bug
+real. Ahora cada test copia el proyecto ENTERO a una carpeta temporal
+aislada, y corre el script ahi, tal cual lo haria una persona real."""
+
+import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
+
+_RAIZ_REAL = Path(__file__).resolve().parent.parent
+_CARPETAS_A_COPIAR = ["scripts", "engine", "config", "collectors", "storage"]
+
+
+def _copiar_proyecto_a(destino: Path) -> None:
+    """Copia una version aislada y minima del proyecto (solo el codigo,
+    sin datos ni base) a `destino`, para poder correr el script ahi como
+    si fuera una instalacion real e independiente."""
+    for carpeta in _CARPETAS_A_COPIAR:
+        shutil.copytree(_RAIZ_REAL / carpeta, destino / carpeta)
 
 
 def _zip_de_prueba(carpeta: Path, fecha: str, ean: str = "1", nombre: str = "Pan") -> Path:
@@ -33,63 +61,47 @@ def _zip_de_prueba(carpeta: Path, fecha: str, ean: str = "1", nombre: str = "Pan
     return archivo
 
 
-def _correr(args, cwd):
+def _correr(proyecto: Path, args: list[str]):
+    """Corre el script DENTRO de la copia aislada del proyecto, tal cual
+    lo haria una persona parada en esa carpeta desde su terminal."""
     return subprocess.run(
         [sys.executable, "-m", "scripts.correr_dia"] + args,
-        cwd=cwd, capture_output=True, text=True, timeout=60,
+        cwd=proyecto, capture_output=True, text=True, timeout=60,
     )
 
 
 def test_carpeta_saltea_una_fecha_ya_cargada():
-    raiz = Path(__file__).resolve().parent.parent
     with tempfile.TemporaryDirectory() as t:
-        datos = Path(t) / "datos_sepa"
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        datos = proyecto / "datos_sepa"
         _zip_de_prueba(datos / "2026-08-09", "2026-08-09")
         _zip_de_prueba(datos / "2026-08-10", "2026-08-10")
 
-        # copiar el proyecto minimo necesario NO hace falta: se corre con
-        # cwd apuntando a un directorio de trabajo temporal, pero import de
-        # los modulos del proyecto requiere que la raiz este en sys.path.
-        # Mas simple: correr con PYTHONPATH apuntando a la raiz real del
-        # proyecto, y la base/datos en el directorio temporal.
-        import os
-        env = dict(**{**__import__("os").environ}, PYTHONPATH=str(raiz))
-
-        r1 = subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(datos)],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
-        )
-        assert "2 archivos cargados" not in r1.stdout or True  # primera carga: ambos nuevos
-        assert "2026-08-09" in r1.stdout and "2026-08-10" in r1.stdout
+        r1 = _correr(proyecto, ["--carpeta", str(datos)])
+        assert "2026-08-09" in r1.stdout and "2026-08-10" in r1.stdout, r1.stdout + r1.stderr
 
         # segunda corrida sobre la MISMA carpeta: las dos fechas ya estan
-        r2 = subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(datos)],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
-        )
-        assert "Ya estaban en la base, no se re-procesaron" in r2.stdout
+        r2 = _correr(proyecto, ["--carpeta", str(datos)])
+        assert "Ya estaban en la base, no se re-procesaron" in r2.stdout, r2.stdout + r2.stderr
         assert "2026-08-09" in r2.stdout
         assert "2026-08-10" in r2.stdout
         assert "Listo: 0 archivos cargados." in r2.stdout
 
 
 def test_carpeta_carga_solo_lo_nuevo_si_ya_habia_algo():
-    raiz = Path(__file__).resolve().parent.parent
     with tempfile.TemporaryDirectory() as t:
-        datos = Path(t) / "datos_sepa"
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        datos = proyecto / "datos_sepa"
         _zip_de_prueba(datos / "2026-08-09", "2026-08-09")
 
-        env = dict(**{**__import__("os").environ}, PYTHONPATH=str(raiz))
-        subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(datos)],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
-        )
+        _correr(proyecto, ["--carpeta", str(datos)])
 
         # ahora aparece un dia nuevo al lado del viejo
         _zip_de_prueba(datos / "2026-08-10", "2026-08-10")
-        r2 = subprocess.run(
-            [sys.executable, "-m", "scripts.correr_dia", "--carpeta", str(datos)],
-            cwd=t, capture_output=True, text=True, timeout=60, env=env,
+        r2 = _correr(proyecto, ["--carpeta", str(datos)])
+        assert "Ya estaban en la base, no se re-procesaron: ['2026-08-09']" in r2.stdout, (
+            r2.stdout + r2.stderr
         )
-        assert "Ya estaban en la base, no se re-procesaron: ['2026-08-09']" in r2.stdout
         assert "Listo: 1 archivos cargados." in r2.stdout

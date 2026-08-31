@@ -19,8 +19,16 @@ from pathlib import Path
 
 from storage.db import conectar
 
-DB_PATH = Path("relevamiento_precios.db")
-CARPETA = Path("historico")
+# Ancladas a la ubicacion de este archivo, no al directorio de trabajo del
+# proceso que lo importa o ejecuta — ver la explicacion completa en
+# app_streamlit.py, junto a RAIZ. Este es el motivo de fondo por el que
+# Streamlit Cloud podia mostrar "No hay datos todavia" pese a que
+# historico/ estuviera bien subido a GitHub: reconstruir() usaba una ruta
+# relativa PROPIA, independiente de cualquier ancla que se hiciera en
+# app_streamlit.py, asi que corregir solo ese archivo no alcanzaba.
+RAIZ = Path(__file__).resolve().parent.parent
+DB_PATH = RAIZ / "relevamiento_precios.db"
+CARPETA = RAIZ / "historico"
 
 
 def reconstruir(borrar: bool = False, verboso: bool = True) -> int:

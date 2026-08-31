@@ -26,7 +26,10 @@ import gzip
 import io
 from pathlib import Path
 
-CARPETA = Path("historico")
+# Ancladas al archivo, no al directorio de trabajo del proceso —
+# ver la explicacion completa en scripts/reconstruir.py.
+RAIZ = Path(__file__).resolve().parent.parent
+CARPETA = RAIZ / "historico"
 
 COLUMNAS_ESPERADAS = {"fecha", "ean_o_id", "clase_codigo", "comercio", "precio", "region"}
 

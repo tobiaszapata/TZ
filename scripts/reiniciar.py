@@ -29,7 +29,10 @@ import argparse
 import shutil
 from pathlib import Path
 
-DB_PATH = Path("relevamiento_precios.db")
+# Ancladas al archivo, no al directorio de trabajo del proceso —
+# ver la explicacion completa en scripts/reconstruir.py.
+RAIZ = Path(__file__).resolve().parent.parent
+DB_PATH = RAIZ / "relevamiento_precios.db"
 LOG_PATH = Path("logs/actualizar.log")
 HISTORICO = Path("historico")
 
