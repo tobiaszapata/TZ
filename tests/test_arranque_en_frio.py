@@ -64,10 +64,20 @@ def _rango_disponible_como_en_la_app(db_path: Path, carpeta_historico: Path):
     llama a `_con()` SIEMPRE, sin ningún atajo previo basado en si la base
     ya existe. Esta es la línea que, si alguien la vuelve a "optimizar"
     agregando un `if not db_path.exists(): return None, None, 0` antes de
-    la conexión, reintroduce el bug real."""
+    la conexión, reintroduce el bug real.
+
+    Devuelve tambien la conexion (ademas de fmin/fmax/ndias) para que
+    quien llama pueda cerrarla explicitamente. NOTA DE WINDOWS: sin cerrar
+    la conexion, el archivo .db queda bloqueado por el sistema operativo
+    en Windows (no en Linux/Mac), y `tempfile.TemporaryDirectory()` no
+    puede borrar la carpeta al salir del `with` — el mismo tipo de
+    problema que ya se corrigio antes con `os.chdir` sin restaurar
+    (ver tests/test_diagnostico_git.py), ahora con una conexion de base
+    de datos en vez de un directorio de trabajo."""
     con = _con_como_en_la_app(db_path, carpeta_historico)
     cur = con.execute("SELECT MIN(fecha), MAX(fecha), COUNT(DISTINCT fecha) FROM precios_raw")
-    return cur.fetchone()
+    resultado = cur.fetchone()
+    return resultado, con
 
 
 def test_arranque_en_frio_sin_base_local_encuentra_los_dias_de_historico():
@@ -83,7 +93,8 @@ def test_arranque_en_frio_sin_base_local_encuentra_los_dias_de_historico():
 
         assert not db_path.exists(), "la prueba tiene que arrancar SIN base, como Streamlit Cloud"
 
-        fmin, fmax, ndias = _rango_disponible_como_en_la_app(db_path, carpeta_historico)
+        (fmin, fmax, ndias), con = _rango_disponible_como_en_la_app(db_path, carpeta_historico)
+        con.close()  # ver nota de Windows en el docstring de arriba
 
         assert fmin == "2026-08-09", (
             f"se esperaba encontrar datos desde 2026-08-09, se obtuvo fmin={fmin!r} — "
@@ -101,6 +112,7 @@ def test_arranque_en_frio_sin_historico_y_sin_base_no_rompe():
         db_path = t / "relevamiento_precios.db"
         carpeta_historico = t / "historico"  # no se crea, no existe
 
-        fmin, fmax, ndias = _rango_disponible_como_en_la_app(db_path, carpeta_historico)
+        (fmin, fmax, ndias), con = _rango_disponible_como_en_la_app(db_path, carpeta_historico)
+        con.close()  # ver nota de Windows en el docstring de arriba
         assert fmin is None
         assert ndias == 0
