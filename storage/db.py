@@ -110,7 +110,21 @@ def conectar(path: Path) -> sqlite3.Connection:
     # con un widget. Es seguro en este caso porque la app de Streamlit SOLO
     # LEE de la base — nunca escribe — y SQLite permite lecturas
     # concurrentes sin problema.
-    con = sqlite3.connect(path, check_same_thread=False)
+    #
+    # timeout=30: sin esto, si CUALQUIER otro proceso tiene el archivo
+    # abierto en modo escritura en el instante exacto de conectar (por
+    # ejemplo, Streamlit Cloud reiniciando el contenedor y dejando por un
+    # momento el proceso viejo todavia terminando de escribir mientras el
+    # nuevo ya arranca), sqlite3 tira "OperationalError: database is
+    # locked" DE INMEDIATO, sin esperar nada. Con timeout=30, en cambio,
+    # espera hasta 30 segundos a que el otro proceso libere el archivo
+    # antes de rendirse — tiempo mas que suficiente para que una
+    # reconstruccion que ya estaba terminando lo haga. Esto fue exactamente
+    # lo que paso en produccion: la validacion de historico/ (que solo
+    # confirma que los ARCHIVOS COMPRIMIDOS esten bien) nunca iba a
+    # encontrar nada mal, porque el problema no eran los archivos sino una
+    # colision temporal de dos procesos tocando el mismo .db.
+    con = sqlite3.connect(path, check_same_thread=False, timeout=30)
     # WAL (Write-Ahead Logging): permite que lecturas y una escritura
     # convivan sin bloquearse mutuamente. Sin esto, si dos personas entran
     # a la app al mismo tiempo justo cuando se esta reconstruyendo la base
@@ -118,7 +132,8 @@ def conectar(path: Path) -> sqlite3.Connection:
     # puede toparse con "database is locked" — que fue exactamente lo que
     # paso en produccion. No es la solucion completa (ver el arreglo real
     # en app_streamlit.py, que evita que la reconstruccion se dispare mas
-    # de una vez), pero es una capa extra de seguridad barata.
+    # de una vez dentro de un mismo proceso), pero sumado al timeout de
+    # arriba cubre tambien el caso de dos PROCESOS distintos coincidiendo.
     con.execute("PRAGMA journal_mode = WAL")
     con.execute("PRAGMA foreign_keys = ON")
     _migrar(con)

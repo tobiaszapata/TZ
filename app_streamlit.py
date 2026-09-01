@@ -30,6 +30,7 @@ la base de datos. Ver tests/test_consultas.py::test_override_no_modifica_la_base
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import date
 from pathlib import Path
 
@@ -193,6 +194,26 @@ with st.sidebar:
 # del st.stop() del error).
 try:
     fmin, fmax, ndias = _rango_disponible()
+except sqlite3.OperationalError as exc:
+    # "database is locked": otro proceso tenia el archivo abierto en el
+    # instante exacto de conectar -- tipicamente Streamlit Cloud
+    # reiniciando el contenedor con el proceso viejo todavia terminando de
+    # escribir mientras el nuevo ya arranca. NO es corrupcion de datos, y
+    # mandar a correr validar_historico() para esto es una perdida de
+    # tiempo real (nunca va a encontrar nada, porque el problema no esta
+    # en los archivos). Con timeout=30 en storage/db.py::conectar esto ya
+    # deberia ser mucho menos frecuente, pero si aun asi pasa, lo unico
+    # que hace falta es reintentar en unos segundos.
+    st.error(
+        f"**{exc}**\n\n"
+        "Esto significa que, por un instante, otro proceso tenía la base de datos en uso "
+        "— algo pasajero, típicamente cuando Streamlit Cloud reinicia el servidor. "
+        "**No es un problema de tus datos ni de historico/.**\n\n"
+        "Esperá unos 10-15 segundos y apretá **'🔄 Actualizar datos'** en el panel "
+        "izquierdo. Si insiste varias veces seguidas, ahí sí valdría la pena revisar "
+        "`Manage app` en Streamlit Cloud por si el servidor quedó en un estado raro."
+    )
+    st.stop()
 except Exception as exc:
     st.error(
         f"La reconstrucción de la base falló con un error real (esto NO significa "

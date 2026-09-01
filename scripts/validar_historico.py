@@ -17,6 +17,16 @@ realidad SÍ hay archivos pero uno de ellos no se puede leer.
 Este script recorre cada archivo y confirma, de forma explícita, cuál
 es el problema y en qué archivo — en vez de dejar que la reconstrucción
 se caiga en un lugar indefinido.
+
+QUÉ ESTA HERRAMIENTA NO PUEDE DETECTAR (aclarado tras un caso real):
+si el error que aparece en Streamlit es "OperationalError: database is
+locked", este script NO va a encontrar nada mal — y con razón: ese error
+no tiene que ver con el contenido de los archivos, sino con que otro
+proceso tenía la base de datos abierta en el instante exacto de conectar
+(típicamente Streamlit Cloud reiniciando el servidor). Para ese caso
+puntual, la solución es simplemente esperar unos segundos y reintentar
+("🔄 Actualizar datos" en la app) — no tiene sentido correr esta
+herramienta para ese error específico.
 """
 
 from __future__ import annotations

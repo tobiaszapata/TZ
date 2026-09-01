@@ -44,3 +44,46 @@ def test_conexion_se_puede_usar_desde_otro_hilo():
             f"la conexion no se pudo usar desde otro hilo: {resultado.get('error')}"
         )
         con.close()
+
+
+def test_conexion_espera_si_otro_proceso_tiene_un_lock_de_escritura():
+    """El bug real: 'OperationalError: database is locked' cuando dos
+    procesos (por ejemplo, dos reconstrucciones de Streamlit Cloud
+    coincidiendo durante un redeploy) compiten por escribir al mismo
+    tiempo. Sin timeout, sqlite3 falla DE INMEDIATO. Con timeout=30, en
+    cambio, espera a que el otro termine — tiempo mas que suficiente para
+    que una reconstruccion que ya estaba terminando lo haga."""
+    import threading
+    import time
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as t:
+        db_path = Path(t) / "t.db"
+        con_a = conectar(db_path)
+        con_a.execute("BEGIN IMMEDIATE")
+
+        resultado = {}
+
+        def otro_proceso_intenta_escribir():
+            t0 = time.time()
+            try:
+                con_b = conectar(db_path)
+                con_b.execute("BEGIN IMMEDIATE")
+                resultado["ok"] = True
+                resultado["tardo"] = time.time() - t0
+                con_b.commit()
+                con_b.close()
+            except Exception as e:
+                resultado["error"] = str(e)
+
+        hilo = threading.Thread(target=otro_proceso_intenta_escribir)
+        hilo.start()
+        time.sleep(1)
+        con_a.commit()
+        hilo.join(timeout=10)
+
+        assert resultado.get("ok") is True, (
+            f"debería haber esperado y conseguido escribir, no fallar: {resultado.get('error')}"
+        )
+        assert resultado["tardo"] >= 0.9, "debería haber esperado, no fallar de inmediato"
+        con_a.close()
