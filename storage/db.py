@@ -370,6 +370,29 @@ def nombres_de_productos(con: sqlite3.Connection, eans: list[str]) -> dict[str, 
     return {e: encontrados.get(e, e) for e in eans}
 
 
+def productos_de_clase(con: sqlite3.Connection, clase_codigo: str) -> list[tuple[str, str, int]]:
+    """Todos los productos DISTINTOS alguna vez cargados en una clase, con
+    su nombre y cuántas veces se observó — pensado para auditar la
+    clasificación (¿qué productos entraron en esta subcategoría, están
+    bien puestos ahí?), no para el cálculo de variación (que usa
+    `precios_por_producto_en_rango`, acotado a un período).
+
+    Devuelve (ean_o_id, nombre_producto, cantidad_de_observaciones),
+    ordenado por cantidad de observaciones de mayor a menor — así los
+    productos más frecuentes (los que más pesan en el cálculo) aparecen
+    primero, y son los que más vale la pena revisar si algo anda mal."""
+    cur = con.execute(
+        """SELECT p.ean_o_id, COALESCE(pr.nombre_producto, p.ean_o_id) AS nombre, COUNT(*) as n
+           FROM precios_raw p
+           LEFT JOIN productos pr ON pr.ean_o_id = p.ean_o_id
+           WHERE p.clase_codigo = ?
+           GROUP BY p.ean_o_id
+           ORDER BY n DESC""",
+        (clase_codigo,),
+    )
+    return cur.fetchall()
+
+
 def registrar_corrida(con: sqlite3.Connection, fecha: str, stats: dict) -> None:
     con.execute(
         """INSERT OR REPLACE INTO corridas_diarias

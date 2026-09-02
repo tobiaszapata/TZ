@@ -105,7 +105,19 @@ REGLAS: list[ReglaClase] = [
     ReglaClase("06.1.1", incluir=[_p("ibuprofeno","paracetamol","aspirina","antiacido",
                                       "analgesico","curita","alcohol en gel","gasa","venda",
                                       "termometro","suero fisiologico","repelente")]),
-    ReglaClase("06.1.2", incluir=[_p("algodon","apositos","agua oxigenada")]),
+    # "algodon" solo (medicinal): excluye textiles y prendas que tambien
+    # mencionan "algodon" en su composicion (sabana, toalla, remera,
+    # pantalon, etc.) — sin esto, "REMERA ALGODON HOMBRE" o "SABANA 100%
+    # ALGODON" caian aca en vez de en indumentaria/textiles del hogar.
+    # Bug real encontrado al auditar por que las reglas de esas
+    # categorias, ya escritas desde antes, nunca aplicaban.
+    ReglaClase("06.1.2", incluir=[_p("algodon","apositos","agua oxigenada")],
+              excluir=[_p("sabana","sabanas","toalla","toallon","acolchado",
+                          "almohada","funda","cortina","mantel","repasador",
+                          "frazada","manta","tela","hilado",
+                          "remera","musculosa","buzo","campera","pantalon",
+                          "short","bermuda","pollera","vestido","camisa",
+                          "bombacha","calzoncillo","media","medias")]),
 
     # --- 12.1.3 Cuidado personal
     ReglaClase("12.1.3", incluir=[_p("shamp","shampoo","champu","acond","acondicionador","jabon de tocador",
@@ -135,6 +147,26 @@ REGLAS: list[ReglaClase] = [
     ReglaClase("05.2.1", incluir=[_p("sabana","sabanas","toallon","toalla","acolchado",
                                       "almohada","funda","cortina","mantel","repasador",
                                       "frazada","manta")]),
+
+    # --- 03.2.1 Zapatos y otros calzados
+    # Palabras deliberadamente ESPECIFICAS de calzado, evitando terminos
+    # ambiguos con otras secciones de un hiper/super (ej. "chancho" de
+    # alimentos, o "bota" que en SEPA a veces aparece en botellas).
+    ReglaClase("03.2.1", incluir=[_p("zapatilla","zapatillas","calzado","ojota","ojotas",
+                                      "chinela","chinelas","borcego","alpargata")]),
+
+    # --- 03.1.2 Prendas de vestir
+    # Igual criterio: palabras que en la practica de SEPA (hiper/super
+    # grandes con seccion de indumentaria basica) casi no tienen
+    # ambiguedad con alimentos, limpieza u otras secciones.
+    ReglaClase("03.1.2", incluir=[_p("remera","remeras","musculosa","buzo","buzos",
+                                      "campera","camperas","pantalon","pantalones",
+                                      "short","bermuda","pollera","polleras",
+                                      "vestido","vestidos","camisa","camisas",
+                                      "ropa interior","bombacha","bombachas",
+                                      "calzoncillo","calzoncillos","malla",
+                                      "conjunto deportivo")],
+              excluir=[_p("papel","detergente","jabon","suavizante")]),  # "malla" de fideos, etc.
 
     # --- 02 Bebidas alcoholicas
     ReglaClase("02.1.2", incluir=[_p("vino","vinos","espumante","champagne","sidra")]),
