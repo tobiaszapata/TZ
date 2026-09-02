@@ -51,3 +51,43 @@ def test_calzado_se_clasifica_correctamente():
     assert clasificar("ZAPATILLA DEPORTIVA RUNNING") == "03.2.1"
     assert clasificar("OJOTAS GOMA VERANO") == "03.2.1"
     assert clasificar("ALPARGATA LONA") == "03.2.1"
+
+
+def test_abreviaturas_reales_de_cerveza_y_bebidas_se_clasifican():
+    """Hallazgo real: revisando con scripts/diagnosticar_mapeo.py que hay
+    en el 'sin clasificar', aparecieron con mucha frecuencia abreviaturas
+    que SEPA genera por limite de caracteres en algunos comercios: 'CERV'
+    en vez de 'cerveza', 'GASEO' en vez de 'gaseosa', 'S/GAS' o 'C/GAS'
+    en vez de 'sin gas'/'con gas'. Verificado contra 3 dias reales antes
+    de agregarlas: sin coincidencias falsas con 'cervatillo' u otras
+    palabras no relacionadas."""
+    assert clasificar("CERV LATA") == "02.1.3"
+    assert clasificar("CERV RUBIA") == "02.1.3"
+    assert clasificar("GASEO COLA") == "01.2.2"
+    assert clasificar("AGUA S/GAS MINERAL") == "01.2.2"
+    assert clasificar("AGUA C/GAS") == "01.2.2"
+
+    # el caso teorico de colision no aparecio en 40+ millones de filas
+    # reales. Ademas, en la practica "CERVATILLO PELUCHE" ya cae en
+    # Juguetes (09.3.1) por la palabra "peluche", que tiene su propia
+    # regla ANTES en la lista — asi que ni siquiera llega a competir con
+    # la de cerveza. Documentado para que quede claro por que.
+    assert clasificar("CERVATILLO PELUCHE") == "09.3.1"
+
+
+def test_abreviaturas_de_higiene_y_limpieza_se_clasifican():
+    """Mismo hallazgo, para cuidado personal y limpieza del hogar:
+    'JAB TOC' (jabon de tocador), 'CREM DENT' (crema dental), 'TAMPON',
+    'P HIG' (papel higienico) y 'LAVAVAJI' (lavavajilla) — todas
+    verificadas contra los 3 dias reales antes de agregarlas, sin
+    coincidencias falsas."""
+    assert clasificar("JAB TOC ANTIBACTERIA") == "12.1.3"
+    assert clasificar("CREM DENT TRIP BENEF") == "12.1.3"
+    assert clasificar("TAMPON SUPER") == "12.1.3"
+    assert clasificar("SH ANTI CAIDA ROMERO") == "12.1.3"
+    assert clasificar("P HIG DOBLE HOJA 30M") == "05.6.1"
+    assert clasificar("LAVAVAJI BIOACT LIMA") == "05.6.1"
+
+
+def test_baguette_es_pan_y_cereales():
+    assert clasificar("BAGUETTE") == "01.1.1"

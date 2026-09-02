@@ -163,6 +163,8 @@ def cargar_archivo(con, path: Path, fecha: str | None = None, verboso: bool = Tr
         if stats.get("errores"):
             print(f"    comercios omitidos: {len(stats['errores'])} "
                   f"(archivo vacio o ilegible en el origen)")
+            for nombre_error in stats["errores"]:
+                print(f"      - {nombre_error}")
         if stats["tasa_mapeo"] < 0.02 and stats["n_filas"] > 0:
             print("    AVISO: tasa de clasificacion muy baja. Revisar collectors/sepa/mapeo.py",
                   file=sys.stderr)

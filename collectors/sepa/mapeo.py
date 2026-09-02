@@ -126,7 +126,9 @@ REGLAS: list[ReglaClase] = [
                                       "hilo dental","enjuague bucal","panal","panales",
                                       "toallitas fem","protectores diarios","afeitar",
                                       "maquinita","coloracion","tintura","crema corporal",
-                                      "protector solar","talco","algodon hisopo","hisopos")]),
+                                      "protector solar","talco","algodon hisopo","hisopos",
+                                      # abreviaturas reales encontradas en SEPA
+                                      "jab toc","crem dent","tampon","tampones","sh anti caida")]),
 
     # --- 05.6.1 Limpieza del hogar
     ReglaClase("05.6.1", incluir=[_p("detergente","lavandina","jabon en polvo","jabon liquido",
@@ -136,7 +138,11 @@ REGLAS: list[ReglaClase] = [
                                       "bolsas de residuos","bolsa de residuo","papel higienico",
                                       "rollo de cocina","servilletas","antihumedad",
                                       "lustramuebles","enjuague concent","aromatizante","desengras",
-                                      "limpiavidrio","jabon para la ropa","perfumina")]),
+                                      "limpiavidrio","jabon para la ropa","perfumina",
+                                      # abreviaturas reales encontradas en SEPA (ver
+                                      # scripts/diagnosticar_mapeo.py): muchos comercios
+                                      # truncan la descripcion por limite de caracteres
+                                      "p hig","lavavaji")]),
 
     # --- 05.4.1 Bazar y menaje
     ReglaClase("05.4.1", incluir=[_p("vaso","plato","taza","jarro","olla","sarten","cacerola",
@@ -170,7 +176,7 @@ REGLAS: list[ReglaClase] = [
 
     # --- 02 Bebidas alcoholicas
     ReglaClase("02.1.2", incluir=[_p("vino","vinos","espumante","champagne","sidra")]),
-    ReglaClase("02.1.3", incluir=[_p("cerveza","cervezas","birra")]),
+    ReglaClase("02.1.3", incluir=[_p("cerveza","cervezas","birra","cerv")]),
     ReglaClase("02.1.1", incluir=[_p("whisky","vodka","gin","ron","fernet","aperitivo",
                                       "licor","tequila","aperital","vermut")]),
 
@@ -178,7 +184,8 @@ REGLAS: list[ReglaClase] = [
     ReglaClase("01.1.1", incluir=[_p("pan","panes","galletitas","galleta","gall","harina",
                                       "fideo","fideos","arroz","avena","cereal","tostadas",
                                       "budin","bizcochuelo","premezcla","polenta","salvado",
-                                      "pastas","noquis","gnocchetti","ravioles","tapa empanada")]),
+                                      "pastas","noquis","gnocchetti","ravioles","tapa empanada",
+                                      "baguette")]),
     ReglaClase("01.1.2", incluir=[_p("asado","carne","carnicero","pollo","milanesa","hamburguesa",
                                       "salchicha","jamon","salame","salamin","fiambre","mortadela",
                                       "bondiola","matambre","chorizo","morcilla","pechuga",
@@ -224,7 +231,7 @@ REGLAS: list[ReglaClase] = [
                                       "capuccino","cappuccino","infusion","saquitos")]),
     ReglaClase("01.2.2", incluir=[_p("gaseosa","agua mineral","agua saborizada","jugo","jugos",
                                       "soda","energizante","isotonica","bebida sin alcohol",
-                                      "amargo serrano","tonica")]),
+                                      "amargo serrano","tonica","gaseo","s/gas","c/gas")]),
 ]
 
 # EAN fijados a mano después de revisar un archivo real. Formato:
