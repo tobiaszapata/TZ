@@ -231,7 +231,7 @@ REGLAS: list[ReglaClase] = [
 
     # --- 12.1.3 Cuidado personal
     ReglaClase("12.1.3", incluir=[_p("shamp","shampoo","champu","acond","acondicionador","jabon de tocador",
-                                      "jab.d/tocador","desodorante","antitranspirante",
+                                      "jab.d/tocador","desodorante","antitranspirante","antitrans",
                                       "pasta dental","crema dental","cepillo dental",
                                       "hilo dental","enjuague bucal","panal","panales",
                                       "toallitas fem","protectores diarios","afeitar",
@@ -251,41 +251,48 @@ REGLAS: list[ReglaClase] = [
                                       "papel higienico","p hig")]),
 
     # --- 05.6.1 Limpieza del hogar
-    ReglaClase("05.6.1", incluir=[_p("detergente","lavandina","jabon en polvo","jabon liquido",
-                                      "suavizante","limpiador","desinfectante","desengrasante",
-                                      "limpia vidrios","quitamanchas","insecticida","apresto",
-                                      "esponja","virulana","trapo","escoba","secador",
-                                      "fibra limpieza","fibra de limpieza",
-                                      "bolsas de residuos","bolsa de residuo",
-                                      "rollo de cocina","servilletas","antihumedad",
-                                      "mantel papel","mantel descartable",
-                                      "lustramuebles","enjuague concent","aromatizante","desengras",
-                                      "limpiavidrio","jabon para la ropa","perfumina",
-                                      # abreviaturas reales encontradas en SEPA (ver
-                                      # scripts/diagnosticar_mapeo.py): muchos comercios
-                                      # truncan la descripcion por limite de caracteres.
-                                      # "p hig"/"papel higienico" SE SACARON de aca: segun
-                                      # la definicion oficial van a Cuidado personal
-                                      # (12.1.3.1), ver arriba.
-                                      "lavavaji",
-                                      # "pala" sola es ambigua; se agrega el patron completo
-                                      "pala de residuos","pala de basura",
-                                      # vasos/platos descartables van aca segun la
-                                      # definicion oficial (05.6.1.3), no en Bazar (05.4.1).
-                                      # Patron flexible porque en la practica suele
-                                      # aparecer "VASO PLASTICO DESCARTABLE", con una
-                                      # palabra en el medio.
-                                      r"(vaso|plato)s?.{0,15}descartables?",
-                                      # del documento de INDEC: rollos de aluminio/film y
-                                      # pilas/lamparas van con "bienes para el hogar",
-                                      # no con electro ni con alimentos. Patron propio
-                                      # (no _p()) para "papel/rollo de aluminio" — la
-                                      # palabra "aluminio" sola es demasiado generica y
-                                      # atrapaba ollas/sartenes de aluminio (que van a
-                                      # Bazar, 05.4.1, no a Limpieza del hogar).
-                                      r"(papel|rollo).{0,15}aluminio",
-                                      "papel film","film transparente",
-                                      "pilas aa","pilas aaa","lampara","lamparita")]),
+    ReglaClase("05.6.1", incluir=[
+        _p("detergente","lavandina","jabon en polvo","jabon liquido",
+           "suavizante","limpiador","desinfectante","desengrasante",
+           "limpia vidrios","quitamanchas","insecticida","apresto",
+           "esponja","virulana","trapo","escoba","secador",
+           "fibra limpieza","fibra de limpieza",
+           "bolsas de residuos","bolsa de residuo",
+           "rollo de cocina","servilletas","antihumedad",
+           "mantel papel","mantel descartable",
+           "lustramuebles","enjuague concent","aromatizante","desengras",
+           "limpiavidrio","jabon para la ropa","perfumina",
+           # abreviaturas reales encontradas en SEPA (ver
+           # scripts/diagnosticar_mapeo.py): muchos comercios
+           # truncan la descripcion por limite de caracteres.
+           # "p hig"/"papel higienico" SE SACARON de aca: segun
+           # la definicion oficial van a Cuidado personal
+           # (12.1.3.1), ver arriba.
+           "lavavaji",
+           # "pala" sola es ambigua; se agrega el patron completo
+           "pala de residuos","pala de basura",
+           "papel film","film transparente",
+           "pilas aa","pilas aaa","lampara","lamparita"),
+        # abreviaturas reales con puntos ("DET.LIQU...", "SUAV.P/ROPA...",
+        # "JABÓN LIQ.P/LAVAR ROPA..."): patrones regex propios (no _p())
+        # porque _p() NO escapa el punto — un punto sin escapar en regex
+        # significa "cualquier caracter", asi que hace falta escaparlo
+        # explicito con \. para que sea un punto literal.
+        r"det\.liqu",
+        r"suav\.p/ropa",
+        r"jabon liq\.p/lavar",
+        # vasos/platos descartables van aca segun la definicion oficial
+        # (05.6.1.3), no en Bazar (05.4.1). Patron flexible porque en la
+        # practica suele aparecer "VASO PLASTICO DESCARTABLE", con una
+        # palabra en el medio.
+        r"(vaso|plato)s?.{0,15}descartables?",
+        # del documento de INDEC: rollos de aluminio/film van con "bienes
+        # para el hogar", no con electro ni con alimentos. Patron propio
+        # (no _p()) para "papel/rollo de aluminio" — la palabra "aluminio"
+        # sola es demasiado generica y atrapaba ollas/sartenes de aluminio
+        # (que van a Bazar, 05.4.1, no a Limpieza del hogar).
+        r"(papel|rollo).{0,15}aluminio",
+    ]),
 
     # --- 05.4.1 Bazar y menaje
     # CORREGIDO segun la nota oficial (05.4.1: vajilla y utensilios
@@ -328,11 +335,21 @@ REGLAS: list[ReglaClase] = [
               excluir=[_p("papel","detergente","jabon","suavizante")]),  # "malla" de fideos, etc.
 
     # --- 02 Bebidas alcoholicas
-    ReglaClase("02.1.2", incluir=[_p("vino","vinos","espumante","champagne","sidra")]),
+    ReglaClase("02.1.2", incluir=[_p("vino","vinos","espumante","champagne","champaña","sidra",
+                                      "malbec","oporto","moscato")]),
     ReglaClase("02.1.3", incluir=[_p("cerveza","cervezas","birra","cerv")]),
     ReglaClase("02.1.1", incluir=[_p("whisky","vodka","gin","ron","fernet","aperitivo",
-                                      "licor","tequila","aperital","vermut",
-                                      "brandy","conac","cognac","aguardiente")]),
+                                      "licor","tequila","aperital","vermut","vermouth",
+                                      "brandy","conac","cognac","aguardiente",
+                                      # bebidas amargas con nombre de marca (Terma,
+                                      # Gancia, etc.) — verificado con datos reales
+                                      "amargo","americano")],
+              # "amargo" solo tambien atraparia cafe amargo y chocolate
+              # amargo, que son productos completamente distintos (ya
+              # bien clasificados por sus propias reglas mas abajo, que
+              # nunca llegarian a evaluarse si esta regla los atrapa
+              # primero por estar antes en el orden).
+              excluir=[_p("cafe","chocolate","cacao")]),
 
     # --- 01.1 Alimentos
     ReglaClase("01.1.1", incluir=[_p("pan","panes","galletitas","galleta","gall","harina",
@@ -344,7 +361,17 @@ REGLAS: list[ReglaClase] = [
                                       # finalidad del documento de INDEC (van con
                                       # panificados y snacks a base de cereal, no
                                       # con la materia prima que evoca el sabor)
-                                      "nachos","chizito","chisito","palito salado","palitos salados")],
+                                      "nachos","chizito","chisito","palito salado","palitos salados",
+                                      # papas fritas y snacks en general: mismo criterio de
+                                      # finalidad del gasto que ya se aplico a Chizitos/Nachos.
+                                      # Volumen real alto encontrado (miles de filas): "PAPAS
+                                      # FRITAS CLASICA/TRADICIONAL/LISAS", "SNACKS REX".
+                                      "papas fritas","papa frita","snacks","snack",
+                                      "granola","cereal en barra","maiz frito","copos de maiz",
+                                      # productos de panaderia/reposteria con nombre puntual,
+                                      # verificados contra datos reales de SEPA
+                                      "grisines","talitas","bizcochos","scones","magdalenas",
+                                      "vainillas")],
               # "torta helada" es un excepcion oficial explicita: la nota de
               # 01.1.8.3 (Helados) dice "helados... incluye postres y
               # TORTAS HELADAS" — sin esto, "TORTA HELADA CHOCOLATE" caia
@@ -382,7 +409,16 @@ REGLAS: list[ReglaClase] = [
                                       "uva","durazno","frutilla","kiwi","anana","sandia","melon",
                                       "ciruela","pomelo","palta","higo","cereza","frutas")],
                excluir=[_p("jugo","gaseosa","agua saborizada","yogur","mermelada",
-                            "helado","alfajor","caramelo","galletita","tarta")]),
+                            "helado","alfajor","caramelo","galletita","tarta",
+                            # bebidas isotonicas y aguas saborizadas con sabor de
+                            # fruta: bug real encontrado con "GATORADE MANZANA" y
+                            # "AGUA S/GAS POMELO" cayendo en Frutas por el sabor.
+                            # Estas van a Aguas y bebidas (01.2.2), no a la fruta
+                            # real. Verificado con 170 productos reales de SEPA
+                            # (Gatorade, Powerade, Aquarius, H2OH, Levite, Suerox).
+                            "gatorade","powerade","isotonica","isotonico",
+                            "agua s/gas","agua c/gas","energizante",
+                            "beb isotonica","beb. isotonica")]),
     ReglaClase("01.1.7", incluir=[_p("papa","batata","cebolla","tomate","lechuga","zanahoria",
                                       "zapallo","zapallito","acelga","espinaca","morron","ajo",
                                       "choclo","lenteja","lentejas","arveja","arvejas","poroto",
@@ -401,20 +437,33 @@ REGLAS: list[ReglaClase] = [
                                       "caram","alfajor","miel","gomitas","turron","bombon",
                                       "pastillas","past","chicle","edulcorante","cacao","oblea",
                                       "cubanito","tableta","barra de cereal","helado",
-                                      "postre","nugaton")],
+                                      "postre","nugaton","chupetin","chupetines")],
                excluir=[_p("dulce de leche")]),
     ReglaClase("01.1.9", incluir=[_p("sal","condimento","especias","molinillo especias","vinagre",
                                       "mayonesa","ketchup","mostaza","salsa","aderezo","caldo",
                                       "sopa","pure","saborizador","aceitunas","conserva",
                                       "escabeche","levadura","gelatina","polvo de hornear",
-                                      "polvo p/hornear","aceto")]),
+                                      "polvo p/hornear","aceto",
+                                      # condimentos/especias con nombre puntual, verificados
+                                      # contra datos reales de SEPA
+                                      "oregano","comino","nuez moscada","pimenton","provenzal",
+                                      "albahaca","laurel","romero","tomillo","curry",
+                                      "canela molida","bicarbonato de sodio",
+                                      # ingredientes de cocina/reposteria abreviados o con
+                                      # nombre puntual, verificados contra datos reales
+                                      "rebozador","esencia de vainilla","almidon de maiz",
+                                      "semola","baño repostero","palmitos","alcaparras",
+                                      "coco rallado")]),
 
     # --- 01.2 Bebidas no alcoholicas
     ReglaClase("01.2.1", incluir=[_p("cafe","yerba","yerba mate","te","cacao en polvo","mate cocido",
+                                      "matecocido",
                                       "capuccino","cappuccino","infusion","saquitos")]),
     ReglaClase("01.2.2", incluir=[_p("gaseosa","agua mineral","agua saborizada","jugo","jugos",
-                                      "soda","energizante","isotonica","bebida sin alcohol",
+                                      "soda","energizante","isotonica","isotonico",
+                                      "bebida sin alcohol",
                                       "amargo serrano","tonica","gaseo",
+                                      "gatorade","powerade",
                                       # "s/gas" y "c/gas" SUELTOS son ambiguos: matcheaban
                                       # "PISTOLA AGUA C/GAS" (un juguete, deberia ir a
                                       # 09.3.1) ademas de "AGUA S/GAS" real. La definicion

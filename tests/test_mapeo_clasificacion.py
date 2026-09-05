@@ -241,4 +241,134 @@ def test_ques_abreviado_es_queso_pero_sab_ques_es_snack():
     assert clasificar("GALL.CRACK.SAB.QUES.KESITAS TRAVIATA PAQ 288 GRM") == "01.1.1"
     # "papas fritas sabor queso" es ambiguo (podria ir a snacks) y se deja
     # sin clasificar en vez de forzarlo a Verduras por la palabra "papa"
-    assert clasificar("PAPAS FRITAS SAB.QUES.CREMA Y CEBOLLA LAYS PAQ 34 GRM") is None
+    # nota: "papas fritas" ahora SI clasifica (a Pan y cereales, ver
+    # test_papas_fritas_y_snacks_son_pan_y_cereales) — este caso ya no
+    # queda ambiguo, se resuelve por la palabra "papas fritas" ganando
+    # sobre la ambiguedad del sabor a queso.
+    assert clasificar("PAPAS FRITAS SAB.QUES.CREMA Y CEBOLLA LAYS PAQ 34 GRM") == "01.1.1"
+
+
+def test_bebidas_isotonicas_con_sabor_de_fruta_no_van_a_frutas():
+    """Bug real reportado por el usuario: 'GATORADE MANZANA' y 'AGUA
+    S/GAS POMELO' caian en Frutas (01.1.6) por el sabor, en vez de en
+    Aguas y bebidas (01.2.2). Verificado con 170 productos reales de
+    SEPA (Gatorade, Powerade, Aquarius, H2OH, Levite, Suerox)."""
+    assert clasificar("GATORADE MANZANA 500ML") == "01.2.2"
+    assert clasificar("AGUA S/GAS POMELO") == "01.2.2"
+    assert clasificar("POWERADE MANZANA") == "01.2.2"
+    assert clasificar("BEBIDA ISOTONICA UVA") == "01.2.2"
+    assert clasificar("AGUA S/GAS MANZANA LEVITE CERO") == "01.2.2"
+
+    # la fruta real tiene que seguir clasificando bien
+    assert clasificar("MANZANA X KG") == "01.1.6"
+    assert clasificar("POMELO ROSADO X KG") == "01.1.6"
+
+
+def test_chupetin_es_golosina():
+    """Bug real reportado: 'CHUPETIN' no clasificaba en ningun lado.
+    Verificado con 86 productos reales de SEPA (Mister Pops, L'heritier,
+    Push Pop, Flynn Paff)."""
+    assert clasificar("CHUPETIN TATU X1") == "01.1.8"
+    assert clasificar("CHUPETIN SUGUS TERRORIFIC") == "01.1.8"
+    assert clasificar("CHUPETINES FRUTALES, MISTER POPS, 125 GR") == "01.1.8"
+    # no debe confundirse con chupete de bebe
+    assert clasificar("CHUPETE BEBE SILICONA") is None
+
+
+def test_papas_fritas_y_snacks_son_pan_y_cereales():
+    """Hallazgo real de alto volumen: 'PAPAS FRITAS' y 'SNACKS' no
+    clasificaban en absoluto (miles de filas reales por dia, ej. 2,926
+    solo de 'PAPAS FRITAS CLASICA' en un dia). Mismo criterio de
+    finalidad del gasto que Chizitos/Nachos: van a Pan y cereales
+    (01.1.1), no a Verduras (por la palabra 'papa')."""
+    assert clasificar("PAPAS FRITAS TRADICIONAL COTO TUB 160 GRM") == "01.1.1"
+    assert clasificar("SNACKS REX ORIGINAL PAQ 75 GRM") == "01.1.1"
+    assert clasificar("PAPAS FRITAS CLASICA") == "01.1.1"
+    # la papa fresca real tiene que seguir clasificando bien
+    assert clasificar("PAPA X KG") == "01.1.7"
+
+
+def test_antitranspirante_abreviado_se_clasifica():
+    """'ANTITRANS.' (con punto, abreviatura real de SEPA) no matcheaba
+    'antitranspirante' completo."""
+    assert clasificar("ANTITRANS.FÚTBOL FANATICS REXONA MEN AER 150 ML") == "12.1.3"
+    assert clasificar("ANTITRANS.ACTIVE EMOTION REXONA AER 250 ML") == "12.1.3"
+
+
+def test_detergente_y_suavizante_abreviados_con_punto():
+    """Hallazgo real durante esta correccion: la funcion _p() NO escapa
+    puntos en regex (un punto sin escapar significa 'cualquier
+    caracter'), asi que abreviaturas reales como 'DET.LIQU...' y
+    'SUAV.P/ROPA...' necesitaron patrones regex propios con el punto
+    escapado explicitamente."""
+    assert clasificar("DET.LIQU.P/LAV.ROP.CONC.P/DIL. ECOVITA BOT 500 ML") == "05.6.1"
+    assert clasificar("SUAV.P/ROPA EXPLO.LAVANDA COMFORT DOY 1 LTR") == "05.6.1"
+    assert clasificar("JABÓN LIQ.P/LAVAR ROPA BIO. ECOVITA DOY 800 ML") == "05.6.1"
+    # las reglas viejas de la misma clase no deben romperse
+    assert clasificar("DETERGENTE LIQUIDO 750ML") == "05.6.1"
+    assert clasificar("VASO PLASTICO DESCARTABLE X20") == "05.6.1"
+    assert clasificar("OLLA DE ALUMINIO") == "05.4.1"
+
+
+def test_matecocido_sin_espacio_se_clasifica():
+    assert clasificar("MATECOCIDO NOBLEZA GAUCHA CJA X100 SAQ 200 GRM") == "01.2.1"
+
+
+def test_amargos_y_aperitivos_con_marca_van_a_destiladas():
+    """'AMARGO TERMA' y 'AMERICANO GANCIA' son bebidas alcoholicas
+    destiladas/aperitivos segun la definicion oficial ('vermuts y
+    aperitivos'), pero la palabra suelta 'amargo' tambien atraparia cafe
+    amargo y chocolate amargo — se excluyen explicitamente."""
+    assert clasificar("AMARGO TERMA SERRANO BOT 1.35 LT") == "02.1.1"
+    assert clasificar("AMERICANO GANCIA BOT 950 CC.") == "02.1.1"
+    assert clasificar("VERMOUTH ROSSO CINZANO BOT 1000 ML") == "02.1.1"
+    # los falsos positivos potenciales tienen que seguir bien clasificados
+    assert clasificar("CAFE AMARGO EN GRANOS") == "01.2.1"
+    assert clasificar("CHOCOLATE AMARGO 70%") == "01.1.8"
+
+
+def test_vinos_con_nombre_propio_se_clasifican():
+    """CHAMPAÑA (con ñ, distinto de CHAMPAGNE), MALBEC, MOSCATO y OPORTO
+    son vinos segun la definicion oficial de INDEC (espumantes y vinos
+    generosos/dulces), no tenian regla."""
+    assert clasificar("CHAMPAÑA EXTRA BRUT NAVARRO CORREAS BOT 750 CC") == "02.1.2"
+    assert clasificar("MALBEC ESTATE BOTTLE PUTRUELE BOT 750 ML") == "02.1.2"
+    assert clasificar("MOSCATO EL ABUELO BOT 750 CC") == "02.1.2"
+    assert clasificar("OPORTO X 750 EL ABUELO BOT 1 UNI") == "02.1.2"
+
+
+def test_condimentos_y_especias_puntuales_se_clasifican():
+    """Oregano, comino, nuez moscada, pimenton, provenzal y otros
+    condimentos con nombre puntual — encontrados con volumen real en
+    los datos de SEPA sin regla previa."""
+    assert clasificar("OREGANO LA PARMESANA PAQ 15 GRM") == "01.1.9"
+    assert clasificar("COMINO MOLIDO LA PARMESANA PAQ 15 GRM") == "01.1.9"
+    assert clasificar("NUEZ MOSCADA MOLIDA LA PARMESANA SOB 15 GRM") == "01.1.9"
+    assert clasificar("PIMENTÓN AHUMADO LA PARMESANA PAQ 15 GRM") == "01.1.9"
+    assert clasificar("PROVENZAL LA PARMESANA PAQ 15 GRM") == "01.1.9"
+    assert clasificar("BICARBONATO DE SODIO LA PARMESANA PAQ 50 GRM") == "01.1.9"
+
+
+def test_ingredientes_de_cocina_puntuales_se_clasifican():
+    """Rebozador, esencia de vainilla, palmitos, alcaparras, coco
+    rallado, semola y baño repostero — ingredientes/preparados de
+    cocina con volumen real, sin regla previa."""
+    assert clasificar("REBOZADOR MORIXE PAQ 500 GRM") == "01.1.9"
+    assert clasificar("ESENCIA DE VAINILLA LA PARMESANA BOT 110 CC") == "01.1.9"
+    assert clasificar("PALMITOS CIUDAD DEL LAGO ENTEROS LAT 400 GRM") == "01.1.9"
+    assert clasificar("ALCAPARRAS ESPAÑOLAS GOYA FRA 159 GRM") == "01.1.9"
+    assert clasificar("COCO RALLADO LA PARMESANA SOB 35 GRM") == "01.1.9"
+    assert clasificar("SEMOLA CLASICA NUTRITIV MAX VITINA LUCCHETTI CJA 250 GRM") == "01.1.9"
+    assert clasificar("BAÑO REPOSTERO BLANCO AGUILA SCH 150 GRM") == "01.1.9"
+
+
+def test_productos_de_panaderia_puntuales_se_clasifican():
+    """Grisines, talitas, bizcochos, scones, magdalenas y vainillas —
+    productos de panaderia/reposteria con volumen real, sin regla
+    previa."""
+    assert clasificar("GRISINES INTEGR.C/SEMILLAS DE LINO Y CHIA RIERA PAQ 160 GRM") == "01.1.1"
+    assert clasificar("TALITAS DON SATUR  BOL 140 GRM") == "01.1.1"
+    assert clasificar("BIZCOCHOS AGRIDULCE DON SATUR BOL 200 GRM") == "01.1.1"
+    assert clasificar("SCONES 9 DE ORO BOL 200 GRM") == "01.1.1"
+    assert clasificar("MAGDALENAS MARMOLADAS POZO PAQ 200 GRM") == "01.1.1"
+    assert clasificar("VAINILLAS COTO  PAQ 148 GRM") == "01.1.1"
