@@ -418,7 +418,13 @@ REGLAS: list[ReglaClase] = [
                             # (Gatorade, Powerade, Aquarius, H2OH, Levite, Suerox).
                             "gatorade","powerade","isotonica","isotonico",
                             "agua s/gas","agua c/gas","energizante",
-                            "beb isotonica","beb. isotonica")]),
+                            "beb isotonica","beb. isotonica",
+                            # mismo problema, mas marcas de aguas saborizadas/jugos:
+                            # verificado con mas de 300 descripciones reales de SEPA
+                            # (Aquarius, Levite, Baggio, H2O, Paso de los Toros,
+                            # Cepita) — todas caian en Frutas por el sabor.
+                            "aquarius","levite","baggio","h2o","paso de los toros",
+                            "cepita")]),
     ReglaClase("01.1.7", incluir=[_p("papa","batata","cebolla","tomate","lechuga","zanahoria",
                                       "zapallo","zapallito","acelga","espinaca","morron","ajo",
                                       "choclo","lenteja","lentejas","arveja","arvejas","poroto",
@@ -432,7 +438,11 @@ REGLAS: list[ReglaClase] = [
               # declarado "caldo" como palabra clave.
               # "PAPAS FRITAS" (snack) no es la hortaliza fresca — mismo
               # criterio.
-              excluir=[_p("caldo","sopa","cubito","papas fritas","papa frita")]),
+              excluir=[_p("caldo","sopa","cubito","papas fritas","papa frita",
+                          # "SALSA DE TOMATE" es un producto procesado (va a
+                          # Otros alimentos, 01.1.9, donde ya esta "salsa"),
+                          # no la verdura fresca — mismo criterio que caldo.
+                          "salsa")]),
     ReglaClase("01.1.8", incluir=[_p("azucar","dulce","mermelada","chocolate","golosina","caramelo",
                                       "caram","alfajor","miel","gomitas","turron","bombon",
                                       "pastillas","past","chicle","edulcorante","cacao","oblea",
@@ -464,6 +474,11 @@ REGLAS: list[ReglaClase] = [
                                       "bebida sin alcohol",
                                       "amargo serrano","tonica","gaseo",
                                       "gatorade","powerade",
+                                      # marcas adicionales de agua saborizada/jugo con
+                                      # nombre de fruta al lado: verificado con 300+
+                                      # descripciones reales de SEPA.
+                                      "aquarius","levite","baggio","h2o","paso de los toros",
+                                      "cepita",
                                       # "s/gas" y "c/gas" SUELTOS son ambiguos: matcheaban
                                       # "PISTOLA AGUA C/GAS" (un juguete, deberia ir a
                                       # 09.3.1) ademas de "AGUA S/GAS" real. La definicion

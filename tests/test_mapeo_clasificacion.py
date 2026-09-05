@@ -372,3 +372,44 @@ def test_productos_de_panaderia_puntuales_se_clasifican():
     assert clasificar("SCONES 9 DE ORO BOL 200 GRM") == "01.1.1"
     assert clasificar("MAGDALENAS MARMOLADAS POZO PAQ 200 GRM") == "01.1.1"
     assert clasificar("VAINILLAS COTO  PAQ 148 GRM") == "01.1.1"
+
+
+def test_mas_marcas_de_bebida_con_sabor_de_fruta_no_van_a_frutas():
+    """Extension del mismo bug de Gatorade/Powerade: el usuario senalo el
+    patron general (una marca de bebida + sabor de fruta al lado se
+    confunde con la fruta real) y trajo 6 marcas puntuales para
+    verificar. Confirmado con mas de 500 descripciones reales de SEPA
+    (Aquarius, Levite, Baggio, H2O, Paso de los Toros, Cepita) en 3 dias
+    — todas caian en Frutas (01.1.6) antes de esta correccion."""
+    assert clasificar("AQUARIUS NARANJA 500ML") == "01.2.2"
+    assert clasificar("LEVITE MANZANA 500ML") == "01.2.2"
+    assert clasificar("BAGGIO PERA 1L") == "01.2.2"
+    assert clasificar("H2O NARANJA 500ML") == "01.2.2"
+    assert clasificar("PASO DE LOS TOROS POMELO 1.5L") == "01.2.2"
+    assert clasificar("CEPITA NARANJA 1L") == "01.2.2"
+
+    # la marca puede aparecer DESPUES del sabor, separada por coma —
+    # el patron funciona en cualquier orden, no solo "marca + sabor"
+    assert clasificar("JUGO NATURAL MANZANA, CEPITA, 1000 CM3") == "01.2.2"
+    assert clasificar("AGUA S/GAS MANZANA, AQUARIUS, 1500 CM3") == "01.2.2"
+
+    # la fruta real, sin ninguna marca de bebida al lado, sigue intacta
+    assert clasificar("MANZANA X KG") == "01.1.6"
+    assert clasificar("POMELO ROSADO X KG") == "01.1.6"
+
+
+def test_salsa_de_tomate_es_otros_alimentos_no_verdura():
+    """Bug real encontrado al evaluar la propuesta del usuario de una
+    regla general 'si compite con Frutas/Verduras, gana la otra
+    categoria': esa regla general estaria mal (rompe casos reales como
+    'DURAZNO EN ALMIBAR', que SI es fruta), pero al investigarla se
+    encontro este caso real puntual que si tenia el bug: 'SALSA DE
+    TOMATE' caia en Verduras (01.1.7) por la palabra 'tomate', en vez de
+    en Otros alimentos (01.1.9) donde ya estaba 'salsa'. Corregido con
+    una exclusion especifica, no una regla general."""
+    assert clasificar("SALSA DE TOMATE TRIPLE CONCENTRADO") == "01.1.9"
+    # la verdura real, incluso combinada en una ensalada o en conserva,
+    # tiene que seguir clasificando como verdura/fruta
+    assert clasificar("ENSALADA DE TOMATE Y CEBOLLA") == "01.1.7"
+    assert clasificar("TOMATE PERITA X KG") == "01.1.7"
+    assert clasificar("DURAZNO EN ALMIBAR CONSERVA LATA 820 GRM") == "01.1.6"
