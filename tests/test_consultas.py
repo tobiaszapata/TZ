@@ -407,3 +407,35 @@ def test_los_12_pesos_nacionales_de_division_suman_100():
     from config.canasta import divisiones
     suma = sum(peso_nacional_division(d.codigo) for d in divisiones())
     assert math.isclose(suma, 100.0, abs_tol=0.01)
+
+
+def test_nivel_general_con_una_division_faltante_difiere_del_oficial_por_cobertura():
+    """Caso real reportado: al poner en modo simulacion los valores
+    oficiales de INDEC para 11 de las 12 divisiones (faltando
+    'Equipamiento y mantenimiento del hogar', peso ~6.4%), el sistema da
+    2.01% en vez del 2.1% que publico INDEC para ese mes (julio 2026).
+    Esto NO es un bug de redondeo: es la consecuencia correcta y
+    esperada de calcular sobre el 93.6% del peso total en vez del 100% —
+    verificado reproduciendo los valores reales publicados por INDEC."""
+    from engine.consultas import peso_nacional_division
+    from engine.agregacion import laspeyres
+
+    valores_reales_julio_2026 = {
+        "01": 2.0, "02": 1.5, "03": -1.3, "04": 2.2, "06": 2.5, "07": 1.9,
+        "08": 2.4, "09": 5.0, "10": 1.9, "11": 2.8, "12": 2.2,
+        # falta "05" (Equipamiento del hogar) a proposito, para reproducir
+        # el escenario real
+    }
+    pesos = {cod: peso_nacional_division(cod) for cod in valores_reales_julio_2026}
+    resultado = laspeyres(valores_reales_julio_2026, pesos)
+
+    assert math.isclose(resultado.variacion_pct, 2.0094, abs_tol=0.01), (
+        f"se esperaba reproducir ~2.01% (el mismo numero reportado), se obtuvo "
+        f"{resultado.variacion_pct}"
+    )
+    # la cobertura tiene que reflejar que falta justo el peso de la
+    # division no incluida (~6.4%)
+    peso_total = sum(peso_nacional_division(d.codigo) for d in
+                     __import__("config.canasta", fromlist=["divisiones"]).divisiones())
+    cobertura = resultado.peso_cubierto / peso_total
+    assert cobertura < 0.94, f"cobertura esperada por debajo de 94%, se obtuvo {cobertura:.2%}"

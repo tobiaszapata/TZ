@@ -119,7 +119,7 @@ def test_producto_que_ya_no_matchea_ninguna_regla_se_borra():
         con = conectar(db_path)
         insertar_observaciones(con, [
             (ObservacionVariedad("2026-08-09", "EAN_INVENTADO", "C1", 100.0,
-                                 "PRODUCTO QUE NO EXISTE EN NINGUNA REGLA XYZ123", region="GBA"),
+                                 "PRODUCTO INVENTADO SIN COINCIDENCIA ZZZQQQ999", region="GBA"),
              "01.1.6"),  # clase que ya no le corresponderia (simulando que antes matcheaba algo)
         ])
         con.close()

@@ -45,7 +45,7 @@ def _repo_con_historico(tmp: Path) -> Path:
     _git(["config", "user.email", "test@test.com"], tmp)
     _git(["config", "user.name", "Test"], tmp)
     (tmp / "historico").mkdir()
-    (tmp / "historico" / "2026-08-09.csv.gz").write_text("contenido inicial")
+    (tmp / "historico" / "2026-08-09.csv.gz").write_text("contenido inicial", encoding="utf-8")
     return tmp
 
 
@@ -97,7 +97,7 @@ def test_detecta_commit_sin_pushear():
             _git(["push", "-u", "-q", "origin", "main"], repo)
 
             # modificar y commitear SIN pushear -- el escenario real reportado
-            (repo / "historico" / "2026-08-09.csv.gz").write_text("contenido corregido")
+            (repo / "historico" / "2026-08-09.csv.gz").write_text("contenido corregido", encoding="utf-8")
             _git(["add", "historico/"], repo)
             _git(["commit", "-q", "-m", "arreglo respaldo"], repo)
 

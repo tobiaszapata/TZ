@@ -99,7 +99,30 @@ REGLAS: list[ReglaClase] = [
 
     # --- 09.3.1 Juguetes
     ReglaClase("09.3.1", incluir=[_p("juguete","muneca","muneco","rompecabeza","puzzle",
-                                      "peluche","ladrillos","juego de mesa","videojuego"),
+                                      "peluche","ladrillos","juego de mesa","videojuego",
+                                      # libros de actividades/colorear infantiles: segun
+                                      # el documento oficial de INDEC, estos van con
+                                      # Juguetes (09.3.1), no con Libros de lectura
+                                      # (09.5.1) — verificado con 123 descripciones reales
+                                      # de SEPA con la palabra "libro": son casi todas
+                                      # libros de colorear con licencias (Toy Story,
+                                      # Bluey, etc.), no novelas ni libros de lectura.
+                                      "libro para colorear","libro de actividades",
+                                      "libro de colorear","libro coloring","libro coloreable",
+                                      "libro de cuentos","libro de mascaras","libro linterna",
+                                      "libro peluche","libro sorpresa",
+                                      "mi primer libro","libro de goma eva"),
+                                  # Patron amplio para variantes que no entraban con las
+                                  # frases exactas de arriba: "libro de actividades/
+                                  # preguntas/arte/trivias/emociones/colorear/kawaii/
+                                  # universo" en cualquier orden, y la serie real
+                                  # "destroza/desarma este libro". Verificado que NO
+                                  # atrapa casos ambiguos como titulos de novela con
+                                  # numero de tomo ("EL DIABLO REGRESA (LIBRO 3)").
+                                  r"libro.{0,20}(actividad|pregunta|colorear|arte|trivia|"
+                                  r"emocion|secreto|kawaii|universo)",
+                                  r"(destroza|desarma)n?.{0,10}este libro",
+                                  r"libro.{0,15}cuentos clasicos",
                                   # "consola" sola es ambigua (consola de sonido,
                                   # de audio); se exige el contexto de videojuegos
                                   r"consola.{0,15}(videojuego|playstation|xbox|nintendo|switch)",
@@ -151,6 +174,61 @@ REGLAS: list[ReglaClase] = [
                           "short","bermuda","pollera","vestido","camisa",
                           "bombacha","calzoncillo","media","medias")]),
 
+    # --- 05.3.1 Artefactos para el hogar (electrodomesticos)
+    # Verificado contra 3 dias reales de SEPA: existe volumen real con
+    # nombres de marca reconocibles (BGH, Whirlpool, Samsung, Drean,
+    # Philco), aunque en menos comercios que Alimentos (7 de 17 para
+    # heladeras, por ejemplo) — se releva igual, con la salvedad de que
+    # la muestra de esta clase depende de menos puntos de venta.
+    ReglaClase("05.3.1", incluir=[_p("heladera","microondas","calefactor","cafetera",
+                                      "termotanque","licuadora","freidora","aspiradora",
+                                      "ventilador","tostadora","horno electrico","batidora",
+                                      "secador de pelo","anafe","estufa","pava electrica",
+                                      "lavarropa","minicomponente","multiprocesadora",
+                                      "smart tv","televisor","parlante",
+                                      # "lavavajillas" es ambiguo: el ELECTRODOMESTICO
+                                      # (LAVAVAJILLAS WHIRLPOOL 14C) y el DETERGENTE
+                                      # (DETERGENTE PARA LAVAVAJILLAS) comparten la
+                                      # palabra. Se exige marca o numero de cubiertos
+                                      # ("14C") junto a la palabra para distinguir el
+                                      # electrodomestico real — el detergente sigue
+                                      # yendo a 05.6.1 (Limpieza del hogar) via "lavavaji".
+                                      r"lavavajillas.{0,25}(whirlpool|drean|bgh|samsung|electrolux|philco|\d+c\b)")]),
+
+    # --- 05.1.1 Muebles, accesorios, alfombras y otros materiales para pisos
+    # Verificado contra datos reales: "colchon" tiene volumen alto (7.937
+    # filas, 9 comercios) pero colisiona con "yogur con colchon de
+    # frutas" (producto lacteo real y frecuente) — se excluye "yogur"
+    # explicitamente, aunque en la practica la regla de yogur (que esta
+    # antes en el orden) ya lo captura primero. "espejo" se descarta: en
+    # los datos reales aparece sobre todo como espejo de mano/maquillaje
+    # (cuidado personal), no como mueble del hogar.
+    ReglaClase("05.1.1", incluir=[_p("colchon","colchones","sommier","almohadon",
+                                      "banqueta","reposera","sombrilla","silla plegable",
+                                      "mesa plegable","perchero","estanteria","placard",
+                                      "ropero")],
+              excluir=[_p("yogur","yogurt")]),
+
+    # --- 05.5.1 Herramientas y equipos para el hogar y jardin
+    # "pala" y "pinza" se DESCARTAN a proposito: en los datos reales
+    # aparecen casi siempre como "pala de residuos/limpieza" (05.6.1) y
+    # "pinza de depilar" (12.1.3), no como herramientas — el volumen alto
+    # (10.576 y 4.091 filas) era ambiguedad, no senal real.
+    ReglaClase("05.5.1", incluir=[_p("taladro","destornillador","martillo","manguera",
+                                      "rastrillo","amoladora","escalera","caja de herramientas",
+                                      "motosierra","regadera","tijera de podar","carretilla",
+                                      "soplador de hojas")]),
+
+    # --- 09.5.4 Papel y utiles de oficina y materiales de dibujo
+    # "fibra" se DESCARTA: en los datos reales es fibra de limpieza
+    # (esponja) o "hamburguesa con fibra" (alimento), no marcador
+    # escolar — 16.208 filas de ruido, cero relacionadas con papeleria.
+    ReglaClase("09.5.4", incluir=[_p("cuaderno","lapiz","lapicera","birome","marcador",
+                                      "resaltador","goma de borrar","sacapuntas","regla",
+                                      "carpeta","folio","corrector liquido","plasticola",
+                                      "tijera escolar","cartuchera","mochila escolar",
+                                      "crayon","acuarela","plastilina")]),
+
     # --- 12.1.3 Cuidado personal
     ReglaClase("12.1.3", incluir=[_p("shamp","shampoo","champu","acond","acondicionador","jabon de tocador",
                                       "jab.d/tocador","desodorante","antitranspirante",
@@ -159,6 +237,7 @@ REGLAS: list[ReglaClase] = [
                                       "toallitas fem","protectores diarios","afeitar",
                                       "maquinita","coloracion","tintura","crema corporal",
                                       "protector solar","talco","algodon hisopo","hisopos",
+                                      "pinza de depilar","alicate de unas",
                                       # abreviaturas reales encontradas en SEPA
                                       "jab toc","crem dent","tampon","tampones","sh anti caida",
                                       # CORREGIDO segun la nota oficial de INDEC
@@ -176,6 +255,7 @@ REGLAS: list[ReglaClase] = [
                                       "suavizante","limpiador","desinfectante","desengrasante",
                                       "limpia vidrios","quitamanchas","insecticida","apresto",
                                       "esponja","virulana","trapo","escoba","secador",
+                                      "fibra limpieza","fibra de limpieza",
                                       "bolsas de residuos","bolsa de residuo",
                                       "rollo de cocina","servilletas","antihumedad",
                                       "mantel papel","mantel descartable",
@@ -188,6 +268,8 @@ REGLAS: list[ReglaClase] = [
                                       # la definicion oficial van a Cuidado personal
                                       # (12.1.3.1), ver arriba.
                                       "lavavaji",
+                                      # "pala" sola es ambigua; se agrega el patron completo
+                                      "pala de residuos","pala de basura",
                                       # vasos/platos descartables van aca segun la
                                       # definicion oficial (05.6.1.3), no en Bazar (05.4.1).
                                       # Patron flexible porque en la practica suele
@@ -284,11 +366,16 @@ REGLAS: list[ReglaClase] = [
                                       "camaron","langostino","calamar","mariscos")]),
     ReglaClase("01.1.4", incluir=[_p("leche","yogur","yoghurt","queso","manteca","crema de leche",
                                       "dulce de leche","huevo","huevos","postre lacteo","ricota",
-                                      "flan","mantecol")],
-              # "CHIZITOS QUESO", "PALITOS SABOR QUESO", etc.: son snacks
-              # (van a Pan y cereales, 01.1.1), no lacteos, aunque el
-              # sabor sea queso. Bug real: "CHIZITOS QUESO" caia en
-              # Lacteos por la palabra suelta "queso".
+                                      "flan","mantecol"),
+                                  # "QUES." abreviado al inicio de palabra: "QUES.D/CAMP.
+                                  # HILADO..." o "QUES.MUZZAREL." son queso real. Se excluye
+                                  # cuando va precedido de "SAB." (sabor a queso), que es un
+                                  # snack con sabor, no lacteo — mismo caso que "queso" suelto
+                                  # se robaba "CHIZITOS QUESO" antes de esa correccion.
+                                  r"(?<!sab\.)ques\."],
+              # snacks/papas fritas con sabor a queso van a Pan y cereales
+              # (01.1.1), no aca — la palabra "queso"/"ques." sola no
+              # debe atraparlos.
               excluir=[_p("chizito","chisito","palito","snack","papas fritas")]),
     ReglaClase("01.1.5", incluir=[_p("aceite","aceites","margarina","grasa","oliva","fritolim")]),
     ReglaClase("01.1.6", incluir=[_p("manzana","banana","naranja","limon","mandarina","pera",
@@ -307,7 +394,9 @@ REGLAS: list[ReglaClase] = [
               # documento de INDEC): sin esto, la palabra suelta "verdura"
               # se lo robaba a Otros alimentos (01.1.9), donde ya esta
               # declarado "caldo" como palabra clave.
-              excluir=[_p("caldo","sopa","cubito")]),
+              # "PAPAS FRITAS" (snack) no es la hortaliza fresca — mismo
+              # criterio.
+              excluir=[_p("caldo","sopa","cubito","papas fritas","papa frita")]),
     ReglaClase("01.1.8", incluir=[_p("azucar","dulce","mermelada","chocolate","golosina","caramelo",
                                       "caram","alfajor","miel","gomitas","turron","bombon",
                                       "pastillas","past","chicle","edulcorante","cacao","oblea",
@@ -334,6 +423,23 @@ REGLAS: list[ReglaClase] = [
                                       # como abreviatura aislada — se corrige exigiendo la
                                       # palabra "agua" junto al gas.
                                       r"agua.{0,10}(s/gas|c/gas)")]),
+
+    # --- 09.1.4 Medios para grabacion
+    # Verificado con datos reales de SEPA: 23 productos con marcas
+    # identificables (Kingston, Maxell, HikSemi, SanDisk) en 3 dias.
+    ReglaClase("09.1.4", incluir=[_p("pendrive","pen drive","microsd","micro sd",
+                                      "memoria usb","tarjeta sd","cd virgen","dvd virgen")]),
+
+    # --- 03.1.3 Otros accesorios para el vestir
+    # Verificado con datos reales de SEPA: 146 coincidencias de "billetera"
+    # y "bufanda"/"gorro" en 3 dias — volumen real, marroquineria y
+    # accesorios segun la definicion oficial de INDEC.
+    ReglaClase("03.1.3", incluir=[_p("billetera","cartera de mano","cinturon","pañuelo",
+                                      "bufanda","sombrero","gorro","gorra")],
+              # "gorro" solo atrapa un adorno navideno real encontrado
+              # (ADORNO GNOMO C GORRO): se excluye explicitamente sin
+              # perder el resto de gorros reales de indumentaria.
+              excluir=[_p("adorno","gnomo")]),
 ]
 
 # EAN fijados a mano después de revisar un archivo real. Formato:

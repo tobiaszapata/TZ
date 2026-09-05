@@ -386,10 +386,20 @@ if ov_division:
     )
     c1, c2 = st.columns([1, 2])
     c1.metric("Nivel general", _color(r.variacion_pct))
-    c2.caption(
-        f"Cobertura: {r.cobertura:.0%} del peso total de la canasta nacional quedó "
-        "representado (sumando lo medido más lo que pusiste a mano)."
-    )
+    if r.cobertura < 0.999:
+        c2.warning(
+            f"⚠️ Cobertura: solo el **{r.cobertura:.0%}** del peso total de la canasta está "
+            "representado. Falta poner un valor (medido o manual) en al menos una división — "
+            "mientras eso falte, este número **no es comparable** con el nivel general que "
+            "publica INDEC, porque se calcula sobre menos del 100% del peso oficial. Revisá "
+            "la tabla de abajo y completá con \"usar valor manual\" las divisiones que falten."
+        )
+    else:
+        c2.caption(
+            f"Cobertura: {r.cobertura:.0%} del peso total de la canasta nacional quedó "
+            "representado (sumando lo medido más lo que pusiste a mano) — comparable con "
+            "el nivel general que publica INDEC."
+        )
 else:
     st.caption(
         "💡 El **nivel general** aparece acá arriba apenas tildes \"usar valor manual\" en "
@@ -535,50 +545,62 @@ for d in divs_detalle:
                 var_grupo = sum(aportes_grupo) / (peso_grupo / 100) if peso_grupo else None
             else:
                 var_grupo = None
+            aporte_grupo = sum(aportes_grupo) if medidas_grupo else None
 
-            st.markdown(f"**{grupo_item.codigo} · {grupo_item.nombre}** "
-                       f"({peso_grupo:.2f}% de peso, {_color(var_grupo)})")
+            # El grupo se muestra en la MISMA fila de columnas que las
+            # clases y divisiones (en vez del texto libre st.markdown de
+            # antes, que quedaba visualmente distinto e inconsistente —
+            # feedback real: "cuando queremos visualizar el grupo no
+            # queda tan claro"). La diferenciación es solo tipografía:
+            # 📁 + negrita + fondo levemente resaltado (container con
+            # borde), no una estructura de tabla distinta.
+            with st.container(border=True):
+                fila_grupo = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
+                fila_grupo[0].markdown(f"📁 **{grupo_item.codigo} · {grupo_item.nombre}**")
+                fila_grupo[1].markdown(f"**{peso_grupo:.2f}%**")
+                fila_grupo[2].markdown(f"**{_color(var_grupo)}**")
+                fila_grupo[3].markdown(f"**{_color(aporte_grupo) if aporte_grupo is not None else '—'}**")
 
-            cabecera = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
-            cabecera[0].markdown("**Clase**")
-            cabecera[1].markdown("**Peso oficial**")
-            cabecera[2].markdown("**Variación**")
-            cabecera[3].markdown("**Aporte pp**")
-            if mostrar_edicion:
-                cabecera[4].markdown("**Usar manual**")
-                cabecera[5].markdown("**Valor (%)**")
-
-            for f in clases_del_grupo:
-                cols = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
-                cols[0].write(f"**{f.codigo}** {f.nombre}")
-                cols[1].write(f"{f.peso:.2f}%")
-                texto_var = _color(f.variacion_pct) + (" ✏️" if f.es_manual else "")
-                cols[2].write(texto_var)
-                cols[3].write(_color(f.aporte_pp) if f.aporte_pp is not None else "—")
-
+                cabecera = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
+                cabecera[0].markdown("**Clase**")
+                cabecera[1].markdown("**Peso oficial**")
+                cabecera[2].markdown("**Variación**")
+                cabecera[3].markdown("**Aporte pp**")
                 if mostrar_edicion:
-                    clave = f.codigo
-                    # Igual criterio que en las divisiones: si NO es un valor
-                    # ya manual y hay dato medido, se usa como precarga al
-                    # tildar "usar" — asi solo hace falta tocar el numero si
-                    # de verdad se quiere cambiar.
-                    valor_medido = f.variacion_pct if not f.es_manual else None
-                    actual = st.session_state.overrides_clase.get(clave)
-                    usar = cols[4].checkbox(
-                        "usar", value=(actual is not None),
-                        key=f"chkcls_{clave}", label_visibility="collapsed",
-                        on_change=_aplicar_override_clase, args=(clave, valor_medido),
-                    )
-                    if usar:
-                        valor_por_defecto = actual if actual is not None else (
-                            valor_medido if valor_medido is not None else 0.0)
-                        cols[5].number_input(
-                            "valor %", value=valor_por_defecto,
-                            step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
+                    cabecera[4].markdown("**Usar manual**")
+                    cabecera[5].markdown("**Valor (%)**")
+
+                for f in clases_del_grupo:
+                    cols = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
+                    cols[0].write(f"**{f.codigo}** {f.nombre}")
+                    cols[1].write(f"{f.peso:.2f}%")
+                    texto_var = _color(f.variacion_pct) + (" ✏️" if f.es_manual else "")
+                    cols[2].write(texto_var)
+                    cols[3].write(_color(f.aporte_pp) if f.aporte_pp is not None else "—")
+
+                    if mostrar_edicion:
+                        clave = f.codigo
+                        # Igual criterio que en las divisiones: si NO es un valor
+                        # ya manual y hay dato medido, se usa como precarga al
+                        # tildar "usar" — asi solo hace falta tocar el numero si
+                        # de verdad se quiere cambiar.
+                        valor_medido = f.variacion_pct if not f.es_manual else None
+                        actual = st.session_state.overrides_clase.get(clave)
+                        usar = cols[4].checkbox(
+                            "usar", value=(actual is not None),
+                            key=f"chkcls_{clave}", label_visibility="collapsed",
                             on_change=_aplicar_override_clase, args=(clave, valor_medido),
                         )
-                        if valor_medido is not None and actual is None:
-                            cols[5].caption(f"↳ precargado ({valor_medido:+.2f}%)")
+                        if usar:
+                            valor_por_defecto = actual if actual is not None else (
+                                valor_medido if valor_medido is not None else 0.0)
+                            cols[5].number_input(
+                                "valor %", value=valor_por_defecto,
+                                step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
+                                on_change=_aplicar_override_clase, args=(clave, valor_medido),
+                            )
+                            if valor_medido is not None and actual is None:
+                                cols[5].caption(f"↳ precargado ({valor_medido:+.2f}%)")
             st.markdown("")
 
         st.markdown("")

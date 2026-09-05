@@ -135,7 +135,7 @@ def test_forzar_rescata_un_producto_que_antes_no_clasificaba():
                 "productos.csv",
                 "id_producto|productos_descripcion|productos_precio_lista|id_comercio\n"
                 "EAN_BANANA|Banana x kg|100|1\n"
-                "EAN_RARO|PRODUCTO SIN REGLA TODAVIA XYZ|200|1\n",
+                "EAN_RARO|PRODUCTO INVENTADO SIN COINCIDENCIA ZZZQQQ888|200|1\n",
             )
         r1 = _correr(proyecto, ["--carpeta", str(datos)])
         assert "clasificadas                  1" in r1.stdout, r1.stdout
@@ -143,13 +143,13 @@ def test_forzar_rescata_un_producto_que_antes_no_clasificaba():
         # Agrego una regla nueva que SI clasifica ese producto (simula
         # una mejora real de mapeo.py hecha despues de la primera carga)
         mapeo_path = proyecto / "collectors" / "sepa" / "mapeo.py"
-        contenido = mapeo_path.read_text()
+        contenido = mapeo_path.read_text(encoding="utf-8")
         contenido = contenido.replace(
             "REGLAS: list[ReglaClase] = [",
             'REGLAS: list[ReglaClase] = [\n'
-            '    ReglaClase("09.3.1", incluir=[r"producto sin regla todavia xyz"]),',
+            '    ReglaClase("09.3.1", incluir=[r"producto inventado sin coincidencia zzzqqq888"]),',
         )
-        mapeo_path.write_text(contenido)
+        mapeo_path.write_text(contenido, encoding="utf-8")
 
         # Sin --forzar: el dia se saltea, el producto sigue perdido
         r2 = _correr(proyecto, ["--carpeta", str(datos)])
@@ -183,3 +183,56 @@ def test_forzar_no_afecta_dias_que_no_estan_en_la_carpeta():
         # el 09 se reprocesa (aparece "cargados" > 0), el 10 sigue en la
         # base intacto porque no estaba en la carpeta para forzar
         assert "1 archivos cargados" in r.stdout, r.stdout + r.stderr
+
+
+def test_archivo_ya_cargado_sin_forzar_no_hace_nada():
+    """El modo --archivo (un solo dia puntual, para probar rapido con
+    pocos dias antes de escalar a --carpeta) tiene que avisar y no volver
+    a procesar si la fecha ya esta en la base — igual criterio que
+    --carpeta, pero antes esto NO estaba implementado para --archivo (el
+    modo insertaba de nuevo sin ningun chequeo, arriesgando mezclar filas
+    viejas y nuevas del mismo dia)."""
+    with tempfile.TemporaryDirectory() as t:
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        zip_path = _zip_de_prueba(proyecto / "datos_sepa" / "2026-08-09", "2026-08-09",
+                                  ean="EAN1", nombre="Banana x kg")
+
+        r1 = _correr(proyecto, ["--archivo", str(zip_path), "--fecha", "2026-08-09"])
+        assert "filas nuevas en la base" in r1.stdout, r1.stdout + r1.stderr
+
+        r2 = _correr(proyecto, ["--archivo", str(zip_path), "--fecha", "2026-08-09"])
+        assert "ya está cargada. No se volvió a procesar" in r2.stdout, r2.stdout + r2.stderr
+
+
+def test_archivo_con_forzar_rescata_un_producto_sin_recargar_toda_la_carpeta():
+    """El caso real pedido: probar con pocos dias sueltos (--archivo),
+    sin tener que usar --carpeta --forzar (que reprocesaria TODO lo que
+    haya en datos_sepa/, no solo el dia que se quiere probar)."""
+    with tempfile.TemporaryDirectory() as t:
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        carpeta_fecha = proyecto / "datos_sepa" / "2026-08-09"
+        carpeta_fecha.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(carpeta_fecha / "sepa_1_comercio-sepa-1_2026-08-09.zip", "w") as z:
+            z.writestr(
+                "productos.csv",
+                "id_producto|productos_descripcion|productos_precio_lista|id_comercio\n"
+                "EAN_BANANA|Banana x kg|100|1\n"
+                "EAN_RARO|PRODUCTO INVENTADO SIN COINCIDENCIA ZZZQQQ888|200|1\n",
+            )
+        r1 = _correr(proyecto, ["--archivo", str(carpeta_fecha), "--fecha", "2026-08-09"])
+        assert "clasificadas                  1" in r1.stdout, r1.stdout + r1.stderr
+
+        mapeo_path = proyecto / "collectors" / "sepa" / "mapeo.py"
+        contenido = mapeo_path.read_text(encoding="utf-8")
+        contenido = contenido.replace(
+            "REGLAS: list[ReglaClase] = [",
+            'REGLAS: list[ReglaClase] = [\n'
+            '    ReglaClase("09.3.1", incluir=[r"producto inventado sin coincidencia zzzqqq888"]),',
+        )
+        mapeo_path.write_text(contenido, encoding="utf-8")
+
+        r2 = _correr(proyecto, ["--archivo", str(carpeta_fecha), "--fecha", "2026-08-09",
+                                "--forzar"])
+        assert "clasificadas                  2" in r2.stdout, r2.stdout + r2.stderr

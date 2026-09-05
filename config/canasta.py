@@ -86,7 +86,7 @@ ITEMS = [
     Item("03.1", "Prendas de vestir y materiales", "grupo", '03', {"GBA": 0.0633, "Pampeana": 0.0768, "Noreste": 0.0797, "Noroeste": 0.0838, "Cuyo": 0.0826, "Patagonia": 0.0896}, Cobertura.PENDIENTE),
     Item("03.1.1", "Materiales textiles, telas e hilados", "clase", '03.1', {"GBA": 0.0009, "Pampeana": 0.0009, "Noreste": 0.0006, "Noroeste": 0.0009, "Cuyo": 0.001, "Patagonia": 0.0011}, Cobertura.PENDIENTE),
     Item("03.1.2", "Prendas de vestir", "clase", '03.1', {"GBA": 0.0576, "Pampeana": 0.0726, "Noreste": 0.0762, "Noroeste": 0.0795, "Cuyo": 0.0782, "Patagonia": 0.085}, Cobertura.MEDIDA_SEPA),
-    Item("03.1.3", "Otros artículos y accesorios para el vestir", "clase", '03.1', {"GBA": 0.0025, "Pampeana": 0.0022, "Noreste": 0.0023, "Noroeste": 0.0025, "Cuyo": 0.0023, "Patagonia": 0.0025}, Cobertura.PENDIENTE),
+    Item("03.1.3", "Otros artículos y accesorios para el vestir", "clase", '03.1', {"GBA": 0.0025, "Pampeana": 0.0022, "Noreste": 0.0023, "Noroeste": 0.0025, "Cuyo": 0.0023, "Patagonia": 0.0025}, Cobertura.MEDIDA_SEPA),
     Item("03.1.4", "Limpieza, reparación, alquiler de ropa", "clase", '03.1', {"GBA": 0.0025, "Pampeana": 0.0011, "Noreste": 0.0006, "Noroeste": 0.0008, "Cuyo": 0.0011, "Patagonia": 0.0009}, Cobertura.PENDIENTE),
     Item("03.2", "Calzado", "grupo", '03', {"GBA": 0.0215, "Pampeana": 0.0275, "Noreste": 0.0363, "Noroeste": 0.04, "Cuyo": 0.0312, "Patagonia": 0.0386}, Cobertura.PENDIENTE),
     Item("03.2.1", "Zapatos y otros calzados", "clase", '03.2', {"GBA": 0.0209, "Pampeana": 0.0271, "Noreste": 0.0355, "Noroeste": 0.0392, "Cuyo": 0.0302, "Patagonia": 0.0381}, Cobertura.MEDIDA_SEPA),
@@ -104,7 +104,7 @@ ITEMS = [
     Item("04.5.2", "Gas", "clase", '04.5', {"GBA": 0.0151, "Pampeana": 0.019, "Noreste": 0.0098, "Noroeste": 0.0186, "Cuyo": 0.0203, "Patagonia": 0.0113}, Cobertura.PENDIENTE),
     Item("05", "Equipamiento y mantenimiento del hogar", "division", None, {"GBA": 0.0627, "Pampeana": 0.0634, "Noreste": 0.0778, "Noroeste": 0.0612, "Cuyo": 0.0628, "Patagonia": 0.0655}, Cobertura.PENDIENTE),
     Item("05.1", "Muebles, accesorios, alfombras y otros materiales para pisos", "grupo", '05', {"GBA": 0.006, "Pampeana": 0.0053, "Noreste": 0.0075, "Noroeste": 0.0057, "Cuyo": 0.0062, "Patagonia": 0.009}, Cobertura.PENDIENTE),
-    Item("05.1.1", "Muebles, accesorios, alfombras y otros materiales para pisos", "clase", '05.1', {"GBA": 0.006, "Pampeana": 0.0053, "Noreste": 0.0075, "Noroeste": 0.0057, "Cuyo": 0.0062, "Patagonia": 0.009}, Cobertura.PENDIENTE),
+    Item("05.1.1", "Muebles, accesorios, alfombras y otros materiales para pisos", "clase", '05.1', {"GBA": 0.006, "Pampeana": 0.0053, "Noreste": 0.0075, "Noroeste": 0.0057, "Cuyo": 0.0062, "Patagonia": 0.009}, Cobertura.MEDIDA_SEPA),
     Item("05.2", "Artículos textiles para el hogar", "grupo", '05', {"GBA": 0.0026, "Pampeana": 0.0025, "Noreste": 0.0028, "Noroeste": 0.0028, "Cuyo": 0.0032, "Patagonia": 0.0035}, Cobertura.PENDIENTE),
     # 05.2.1 SI se releva con SEPA: sabanas, toallas, acolchados, cortinas
     # se venden en las secciones de bazar/textil de hiper y supermercados
@@ -113,14 +113,14 @@ ITEMS = [
     # clase no estaba declarada — quedaban sin mapear en silencio.
     Item("05.2.1", "Artículos textiles para el hogar", "clase", '05.2', {"GBA": 0.0026, "Pampeana": 0.0025, "Noreste": 0.0028, "Noroeste": 0.0028, "Cuyo": 0.0032, "Patagonia": 0.0035}, Cobertura.MEDIDA_SEPA),
     Item("05.3", "Artefactos para el hogar", "grupo", '05', {"GBA": 0.0114, "Pampeana": 0.0122, "Noreste": 0.0253, "Noroeste": 0.0102, "Cuyo": 0.0104, "Patagonia": 0.0159}, Cobertura.PENDIENTE),
-    Item("05.3.1", "Artefactos para el hogar", "clase", '05.3', {"GBA": 0.0114, "Pampeana": 0.0122, "Noreste": 0.0253, "Noroeste": 0.0102, "Cuyo": 0.0104, "Patagonia": 0.0159}, Cobertura.PENDIENTE),
+    Item("05.3.1", "Artefactos para el hogar", "clase", '05.3', {"GBA": 0.0114, "Pampeana": 0.0122, "Noreste": 0.0253, "Noroeste": 0.0102, "Cuyo": 0.0104, "Patagonia": 0.0159}, Cobertura.MEDIDA_SEPA),
     Item("05.4", "Vajilla, utensilios, loza, cristalería  y otros artículos para el hogar", "grupo", '05', {"GBA": 0.0027, "Pampeana": 0.0026, "Noreste": 0.0035, "Noroeste": 0.0029, "Cuyo": 0.0028, "Patagonia": 0.0039}, Cobertura.PENDIENTE),
     # 05.4.1 SI se releva con SEPA: vasos, platos, ollas, cubiertos — el
     # "bazar" clasico de un supermercado. Mismo caso que 05.2.1: la regla
     # de mapeo.py ya existia, faltaba declarar la clase.
     Item("05.4.1", "Vajilla, utensilios, loza, cristalería y otros artículos para el hogar", "clase", '05.4', {"GBA": 0.0027, "Pampeana": 0.0026, "Noreste": 0.0035, "Noroeste": 0.0029, "Cuyo": 0.0028, "Patagonia": 0.0039}, Cobertura.MEDIDA_SEPA),
     Item("05.5", "Herramientas y equipos para el hogar y el jardín", "grupo", '05', {"GBA": 0.0033, "Pampeana": 0.0027, "Noreste": 0.0031, "Noroeste": 0.0026, "Cuyo": 0.0034, "Patagonia": 0.003}, Cobertura.PENDIENTE),
-    Item("05.5.1", "Herramientas y equipos para el hogar y el jardín", "clase", '05.5', {"GBA": 0.0033, "Pampeana": 0.0027, "Noreste": 0.0031, "Noroeste": 0.0026, "Cuyo": 0.0034, "Patagonia": 0.003}, Cobertura.PENDIENTE),
+    Item("05.5.1", "Herramientas y equipos para el hogar y el jardín", "clase", '05.5', {"GBA": 0.0033, "Pampeana": 0.0027, "Noreste": 0.0031, "Noroeste": 0.0026, "Cuyo": 0.0034, "Patagonia": 0.003}, Cobertura.MEDIDA_SEPA),
     Item("05.6", "Bienes y servicios para la conservación del hogar", "grupo", '05', {"GBA": 0.0366, "Pampeana": 0.0381, "Noreste": 0.0355, "Noroeste": 0.0369, "Cuyo": 0.0368, "Patagonia": 0.0303}, Cobertura.PENDIENTE),
     Item("05.6.1", "Bienes para el hogar no durables", "clase", '05.6', {"GBA": 0.0167, "Pampeana": 0.0212, "Noreste": 0.0209, "Noroeste": 0.0204, "Cuyo": 0.0205, "Patagonia": 0.0179}, Cobertura.MEDIDA_SEPA),
     Item("05.6.2", "Servicios domésticos y para el hogar", "clase", '05.6', {"GBA": 0.0199, "Pampeana": 0.0169, "Noreste": 0.0147, "Noroeste": 0.0166, "Cuyo": 0.0164, "Patagonia": 0.0123}, Cobertura.NO_SCRAPEABLE),
@@ -169,7 +169,7 @@ ITEMS = [
     Item("09.1.1", "Equipo para la recepción, grabación y reproducción de sonidos e imágenes", "clase", '09.1', {"GBA": 0.0042, "Pampeana": 0.0046, "Noreste": 0.0083, "Noroeste": 0.0052, "Cuyo": 0.0047, "Patagonia": 0.0073}, Cobertura.PENDIENTE),
     Item("09.1.2", "Equipo fotográfico y cinematográfico e instrumentos ópticos", "clase", '09.1', {"GBA": 0.0019, "Pampeana": 0.0013, "Noreste": 0.0003, "Noroeste": 0.0005, "Cuyo": 0.0005, "Patagonia": 0.0019}, Cobertura.PENDIENTE),
     Item("09.1.3", "Equipos de procesamiento e información", "clase", '09.1', {"GBA": 0.0044, "Pampeana": 0.0039, "Noreste": 0.0033, "Noroeste": 0.0031, "Cuyo": 0.003, "Patagonia": 0.0051}, Cobertura.PENDIENTE),
-    Item("09.1.4", "Medios para grabación", "clase", '09.1', {"GBA": 0.0029, "Pampeana": 0.0021, "Noreste": 0.0016, "Noroeste": 0.0018, "Cuyo": 0.0027, "Patagonia": 0.003}, Cobertura.PENDIENTE),
+    Item("09.1.4", "Medios para grabación", "clase", '09.1', {"GBA": 0.0029, "Pampeana": 0.0021, "Noreste": 0.0016, "Noroeste": 0.0018, "Cuyo": 0.0027, "Patagonia": 0.003}, Cobertura.MEDIDA_SEPA),
     Item("09.3", "Otros artículos para la recreación, jardines y animales", "grupo", '09', {"GBA": 0.0107, "Pampeana": 0.0097, "Noreste": 0.0059, "Noroeste": 0.0083, "Cuyo": 0.0114, "Patagonia": 0.0104}, Cobertura.PENDIENTE),
     Item("09.3.1", "Juegos, juguetes y hobbies", "clase", '09.3', {"GBA": 0.0036, "Pampeana": 0.004, "Noreste": 0.0027, "Noroeste": 0.0044, "Cuyo": 0.0044, "Patagonia": 0.0041}, Cobertura.MEDIDA_SEPA),
     Item("09.3.2", "Equipo para el deporte, campamento y recreación al aire libre", "clase", '09.3', {"GBA": 0.0007, "Pampeana": 0.0009, "Noreste": 0.0003, "Noroeste": 0.0004, "Cuyo": 0.0004, "Patagonia": 0.001}, Cobertura.PENDIENTE),
@@ -180,7 +180,7 @@ ITEMS = [
     Item("09.5", "Periódicos, diarios, revistas, libros y artículos de papelería", "grupo", '09', {"GBA": 0.0149, "Pampeana": 0.0162, "Noreste": 0.0184, "Noroeste": 0.0158, "Cuyo": 0.0152, "Patagonia": 0.0183}, Cobertura.PENDIENTE),
     Item("09.5.1", "Libros", "clase", '09.5', {"GBA": 0.0069, "Pampeana": 0.006, "Noreste": 0.0086, "Noroeste": 0.0064, "Cuyo": 0.008, "Patagonia": 0.0091}, Cobertura.PENDIENTE),
     Item("09.5.2", "Diarios y publicaciones periódicas", "clase", '09.5', {"GBA": 0.0051, "Pampeana": 0.0058, "Noreste": 0.005, "Noroeste": 0.0048, "Cuyo": 0.0041, "Patagonia": 0.0041}, Cobertura.PENDIENTE),
-    Item("09.5.4", "Papel y útiles de oficina y materiales de dibujo", "clase", '09.5', {"GBA": 0.003, "Pampeana": 0.0044, "Noreste": 0.0048, "Noroeste": 0.0045, "Cuyo": 0.0031, "Patagonia": 0.0051}, Cobertura.PENDIENTE),
+    Item("09.5.4", "Papel y útiles de oficina y materiales de dibujo", "clase", '09.5', {"GBA": 0.003, "Pampeana": 0.0044, "Noreste": 0.0048, "Noroeste": 0.0045, "Cuyo": 0.0031, "Patagonia": 0.0051}, Cobertura.MEDIDA_SEPA),
     Item("09.6", "Paquetes turísticos", "grupo", '09', {"GBA": 0.005, "Pampeana": 0.0074, "Noreste": 0.0018, "Noroeste": 0.0021, "Cuyo": 0.003, "Patagonia": 0.0016}, Cobertura.PENDIENTE),
     Item("10", "Educación", "division", None, {"GBA": 0.0302, "Pampeana": 0.0161, "Noreste": 0.0136, "Noroeste": 0.0204, "Cuyo": 0.0224, "Patagonia": 0.0209}, Cobertura.PENDIENTE),
     Item("10.1", "Educación preescolar y primaria", "grupo", '10', {"GBA": 0.013, "Pampeana": 0.0066, "Noreste": 0.0034, "Noroeste": 0.0089, "Cuyo": 0.007, "Patagonia": 0.0076}, Cobertura.NO_SCRAPEABLE),

@@ -118,3 +118,16 @@ def test_tipo_de_bien_distingue_dentro_de_la_misma_division():
 def test_tipo_de_bien_identifica_tarifas_reguladas():
     from scripts.auditar_cobertura import _tipo_de_bien
     assert "regulada" in _tipo_de_bien("04.5.1").lower() or "combustible" in _tipo_de_bien("04.5.1").lower()
+
+
+def test_distingue_relevable_con_sepa_de_necesita_otra_fuente():
+    """El pedido real: separar, dentro de lo PENDIENTE, lo que ya podria
+    relevarse con los mismos datos de SEPA (solo falta escribir la regla,
+    ej. electrodomesticos chicos que si vende un hiper) de lo que
+    necesita otro programa de scraping (vehiculos, celulares — no se
+    venden en la gondola de un supermercado)."""
+    from scripts.auditar_cobertura import _tipo_de_bien
+    assert "relevable HOY con SEPA" in _tipo_de_bien("05.3.1")  # electrodomesticos chicos
+    assert "relevable HOY con SEPA" in _tipo_de_bien("09.5.1")  # libros
+    assert "NO de supermercado" in _tipo_de_bien("07.1.1")  # vehiculos a motor
+    assert "NO de supermercado" in _tipo_de_bien("08.2.2")  # celulares

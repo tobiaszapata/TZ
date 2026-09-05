@@ -301,6 +301,38 @@ def main() -> None:
 
     print("== Carga de un dia ==\n")
     con = conectar(DB_PATH)
+
+    # Mismo chequeo que en modo --carpeta: si la fecha ya esta cargada y
+    # no se paso --forzar, se avisa y no se hace nada — evita insertar de
+    # nuevo sobre un dia ya cargado sin limpiar antes (podria mezclar
+    # filas viejas y nuevas del mismo dia de forma inconsistente). Con
+    # --forzar, se borran las filas de esa fecha primero y se recarga
+    # entera con las reglas de clasificacion actuales — pensado para
+    # probar con pocos dias primero, sin tener que tocar toda la carpeta
+    # datos_sepa/ como exige --carpeta --forzar.
+    fecha_detectada = args.fecha or fecha_desde_nombre(args.archivo.name)
+    if not fecha_detectada and args.archivo.suffix.lower() == ".zip":
+        try:
+            with zipfile.ZipFile(args.archivo) as z:
+                fecha_detectada = fecha_desde_zip(z)
+        except (zipfile.BadZipFile, OSError):
+            fecha_detectada = None
+
+    if fecha_detectada:
+        from scripts.exportar_dia import dias_en_base
+        ya_cargadas = set(dias_en_base(con))
+        if fecha_detectada in ya_cargadas:
+            if args.forzar:
+                con.execute("DELETE FROM precios_raw WHERE fecha = ?", (fecha_detectada,))
+                print(f"'{fecha_detectada}' ya estaba cargada — se borró y se recarga con "
+                      "las reglas de clasificación actuales (--forzar).\n")
+            else:
+                print(f"'{fecha_detectada}' ya está cargada. No se volvió a procesar.")
+                print("Si querés reclasificar este día con las reglas actuales de "
+                      "mapeo.py, agregá --forzar.")
+                con.close()
+                return
+
     cargar_archivo(con, args.archivo, args.fecha)
     _respaldar_automaticamente(con)
     con.close()

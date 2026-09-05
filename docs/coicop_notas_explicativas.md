@@ -197,7 +197,9 @@ algún momento se evalúa scraping de tarifas reguladas.
 
 ### 05.1.1 Muebles y accesorios
 Camas, roperos, colchones, mesas, sillas, artefactos de iluminación,
-espejos. No relevado hoy (PENDIENTE en canasta.py).
+espejos. YA MEDIDA con SEPA (verificado: incluye muebles de jardín reales
+— sillas plegables, reposeras, sombrillas — encontrados en datos reales
+con marcas como Carrefour).
 
 ### 05.2.1 Artículos textiles para el hogar
 - **05.2.1.1** Ropa de cama (incluye almohada): almohadas, mantas,

@@ -180,3 +180,65 @@ def test_pistola_de_agua_es_juguete_no_bebida():
     # riesgo de colision verificado: "pistola" sola no debe matchear
     # herramientas de ferreteria (pistola de silicona)
     assert clasificar("PISTOLA SILICONA CALIENTE") is None
+
+
+def test_libros_infantiles_de_actividades_van_a_juguetes():
+    """Hallazgo real al analizar volumen disperso de SEPA: el 100% de las
+    123 descripciones con 'libro' encontradas en 2 dias reales resultaron
+    ser libros de colorear/actividades con licencias infantiles (Toy
+    Story, Bluey, Star Wars, etc.), no libros de lectura — segun el
+    documento oficial de INDEC, estos van a Juguetes (09.3.1), no a
+    Libros (09.5.1). Se verifico que la subclase 09.5.1 (libros de
+    lectura reales) no tiene volumen real en SEPA, asi que no se declaro
+    medida."""
+    assert clasificar("LB PAW PATROL MI LIBRO ACTIVIDADES") == "09.3.1"
+    assert clasificar("LB MI GRAN LIBRO DE LAS EMOCIONES") == "09.3.1"
+    assert clasificar("LIBRO CUENTOS CLASICOS BLANCANIEVES 1UN") == "09.3.1"
+    assert clasificar("LB STITCH DESTROZA ESTE LIBRO") == "09.3.1"
+    assert clasificar("LB STITCH Y ANGEL DESTROZAN ESTE LIBRO") == "09.3.1"
+
+    # casos ambiguos (posibles novelas reales con numero de tomo) tienen
+    # que seguir sin clasificar, no forzarse a Juguetes
+    assert clasificar("LB EL DIABLO REGRESA (LIBRO 3)") is None
+    assert clasificar("LIBRO UNA HERMANA ANORMAL") is None
+
+
+def test_medios_de_grabacion_se_clasifican():
+    """Verificado con 23 productos reales de SEPA (Kingston, Maxell,
+    HikSemi, SanDisk) en 3 dias."""
+    assert clasificar("PENDRIVE 64GB USB 2") == "09.1.4"
+    assert clasificar("MEMORIA 128 GB KINGSTON MICROSD CLASE10") == "09.1.4"
+    assert clasificar("MEMORIA MICROSD HIKSEMI 32GB CON ADAPTADOR") == "09.1.4"
+
+
+def test_accesorios_para_vestir_se_clasifican_sin_atrapar_adornos():
+    """Verificado con 146 coincidencias reales de SEPA (billeteras,
+    bufandas, gorros). Se excluye explicitamente un caso real de
+    adorno navideno encontrado (ADORNO GNOMO C GORRO) que colisionaba
+    con la palabra suelta 'gorro'."""
+    assert clasificar("BILLETERA BOOK PU 10.7X8.8CM") == "03.1.3"
+    assert clasificar("BUFANDA LISA HOMBRE") == "03.1.3"
+    assert clasificar("GORRO DE LANA DAMAS") == "03.1.3"
+    assert clasificar("ADORNO GNOMO C GORRO 6X16 CM") is None
+
+
+def test_hilado_no_se_confunde_con_queso_hilado():
+    """Verificacion negativa: se investigo declarar Materiales textiles
+    (03.1.1) para hilados de tejer, pero el 100% del volumen real de
+    'hilado' en SEPA resulto ser queso hilado (Nonna Pia, Vacalin,
+    Lucrecia) — ya clasificado correctamente como lacteo. Por eso no se
+    declaro esa subclase como medida: no habia volumen textil real."""
+    assert clasificar("QUES.D/CAMP.HILADO AHUMADO NONNA PIA PAQ 210 GRM") == "01.1.4"
+    assert clasificar("QUESO PROVOLONE HILADO LUCRECIA X KG.") == "01.1.4"
+
+
+def test_ques_abreviado_es_queso_pero_sab_ques_es_snack():
+    """Hallazgo real al verificar 'QUES.' abreviado: el patron distingue
+    'QUES.D/CAMP...' (queso real, al inicio) de 'SAB.QUES...' (sabor a
+    queso de un snack, no lacteo) — mismo tipo de ambiguedad que ya se
+    corrigio con 'CHIZITOS QUESO'."""
+    assert clasificar("QUES.MUZZAREL. SIN SAL VACALIN PAQ 500 GRM") == "01.1.4"
+    assert clasificar("GALL.CRACK.SAB.QUES.KESITAS TRAVIATA PAQ 288 GRM") == "01.1.1"
+    # "papas fritas sabor queso" es ambiguo (podria ir a snacks) y se deja
+    # sin clasificar en vez de forzarlo a Verduras por la palabra "papa"
+    assert clasificar("PAPAS FRITAS SAB.QUES.CREMA Y CEBOLLA LAYS PAQ 34 GRM") is None
