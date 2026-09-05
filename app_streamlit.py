@@ -36,6 +36,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from config.canasta import grupos_de_division
 from engine.consultas import (
     actualizar_override,
     hace_falta_reconstruir,
@@ -482,9 +483,10 @@ st.divider()
 
 # ---------------------------------------------------------------- detalle por subcategoria
 st.header("Detalle dentro de cada división medida")
-st.caption("Cada división medida se abre para ver sus subcategorías (nivel nacional), y cada "
-           "subcategoría para ver los productos. La columna *aporte* suma la variación de la "
-           "división.")
+st.caption("Cada división medida se abre para ver sus grupos, cada grupo para ver sus clases "
+           "(nivel nacional), y cada clase para ver los productos reales de SEPA. Los tres "
+           "niveles —división, grupo y clase— usan el ponderador oficial de INDEC. La columna "
+           "*aporte* suma la variación de la división.")
 
 for d in divs_detalle:
     if not d.clases:
@@ -498,46 +500,86 @@ for d in divs_detalle:
     with st.expander(etiqueta, expanded=(d.codigo == "01" and tiene)):
         st.caption(f"Cobertura de la división: {d.cobertura:.0%} del peso medible por SEPA")
 
-        cabecera = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
-        cabecera[0].markdown("**Subcategoría**")
-        cabecera[1].markdown("**Peso oficial**")
-        cabecera[2].markdown("**Variación**")
-        cabecera[3].markdown("**Aporte pp**")
-        if mostrar_edicion:
-            cabecera[4].markdown("**Usar manual**")
-            cabecera[5].markdown("**Valor (%)**")
-
+        # Navegación en 3 niveles: división (ya estamos adentro) > grupo >
+        # clase. Se agrupan las clases de esta división por su GRUPO
+        # padre (el codigo de grupo es el prefijo del codigo de clase,
+        # ej. "01.1.1" pertenece al grupo "01.1") para no tener que
+        # cambiar la estructura de datos que ya calcula todo bien a
+        # nivel clase — es puramente una reorganizacion de presentacion.
+        #
+        # POR QUE 3 NIVELES Y NO 4 (con subclase): se habia empezado a
+        # construir un nivel de subclase, pero INDEC no publica
+        # ponderadores oficiales por debajo de clase en ninguna fuente
+        # disponible (ni el informe mensual, ni el clasificador COICOP,
+        # que solo trae nombres sin pesos) — agregar subclase hubiera
+        # exigido inventar o estimar esos pesos sin respaldo. Los 3
+        # niveles de aca SI tienen ponderador oficial confirmado
+        # (ponderadores_ipc.xls, verificado sin divergencias), y dentro
+        # de una clase se va directo a los productos reales de SEPA, sin
+        # ningun nivel de clasificacion intermedio adicional.
+        grupos_de_esta_division = grupos_de_division(d.codigo)
+        clases_por_grupo: dict[str, list] = {}
         for f in d.clases:
-            cols = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
-            cols[0].write(f"**{f.codigo}** {f.nombre}")
-            cols[1].write(f"{f.peso:.2f}%")
-            texto_var = _color(f.variacion_pct) + (" ✏️" if f.es_manual else "")
-            cols[2].write(texto_var)
-            cols[3].write(_color(f.aporte_pp) if f.aporte_pp is not None else "—")
+            cod_grupo = f.codigo.rsplit(".", 1)[0]  # "01.1.1" -> "01.1"
+            clases_por_grupo.setdefault(cod_grupo, []).append(f)
 
+        for grupo_item in grupos_de_esta_division:
+            clases_del_grupo = clases_por_grupo.get(grupo_item.codigo, [])
+            if not clases_del_grupo:
+                continue  # este grupo no tiene ninguna clase medida hoy
+
+            peso_grupo = sum(f.peso for f in clases_del_grupo)
+            medidas_grupo = [f for f in clases_del_grupo if f.variacion_pct is not None]
+            if medidas_grupo:
+                aportes_grupo = [f.aporte_pp for f in medidas_grupo if f.aporte_pp is not None]
+                var_grupo = sum(aportes_grupo) / (peso_grupo / 100) if peso_grupo else None
+            else:
+                var_grupo = None
+
+            st.markdown(f"**{grupo_item.codigo} · {grupo_item.nombre}** "
+                       f"({peso_grupo:.2f}% de peso, {_color(var_grupo)})")
+
+            cabecera = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
+            cabecera[0].markdown("**Clase**")
+            cabecera[1].markdown("**Peso oficial**")
+            cabecera[2].markdown("**Variación**")
+            cabecera[3].markdown("**Aporte pp**")
             if mostrar_edicion:
-                clave = f.codigo
-                # Igual criterio que en las divisiones: si NO es un valor
-                # ya manual y hay dato medido, se usa como precarga al
-                # tildar "usar" — asi solo hace falta tocar el numero si
-                # de verdad se quiere cambiar.
-                valor_medido = f.variacion_pct if not f.es_manual else None
-                actual = st.session_state.overrides_clase.get(clave)
-                usar = cols[4].checkbox(
-                    "usar", value=(actual is not None),
-                    key=f"chkcls_{clave}", label_visibility="collapsed",
-                    on_change=_aplicar_override_clase, args=(clave, valor_medido),
-                )
-                if usar:
-                    valor_por_defecto = actual if actual is not None else (
-                        valor_medido if valor_medido is not None else 0.0)
-                    cols[5].number_input(
-                        "valor %", value=valor_por_defecto,
-                        step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
+                cabecera[4].markdown("**Usar manual**")
+                cabecera[5].markdown("**Valor (%)**")
+
+            for f in clases_del_grupo:
+                cols = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
+                cols[0].write(f"**{f.codigo}** {f.nombre}")
+                cols[1].write(f"{f.peso:.2f}%")
+                texto_var = _color(f.variacion_pct) + (" ✏️" if f.es_manual else "")
+                cols[2].write(texto_var)
+                cols[3].write(_color(f.aporte_pp) if f.aporte_pp is not None else "—")
+
+                if mostrar_edicion:
+                    clave = f.codigo
+                    # Igual criterio que en las divisiones: si NO es un valor
+                    # ya manual y hay dato medido, se usa como precarga al
+                    # tildar "usar" — asi solo hace falta tocar el numero si
+                    # de verdad se quiere cambiar.
+                    valor_medido = f.variacion_pct if not f.es_manual else None
+                    actual = st.session_state.overrides_clase.get(clave)
+                    usar = cols[4].checkbox(
+                        "usar", value=(actual is not None),
+                        key=f"chkcls_{clave}", label_visibility="collapsed",
                         on_change=_aplicar_override_clase, args=(clave, valor_medido),
                     )
-                    if valor_medido is not None and actual is None:
-                        cols[5].caption(f"↳ precargado ({valor_medido:+.2f}%)")
+                    if usar:
+                        valor_por_defecto = actual if actual is not None else (
+                            valor_medido if valor_medido is not None else 0.0)
+                        cols[5].number_input(
+                            "valor %", value=valor_por_defecto,
+                            step=0.1, format="%.2f", key=f"ovcls_{clave}", label_visibility="collapsed",
+                            on_change=_aplicar_override_clase, args=(clave, valor_medido),
+                        )
+                        if valor_medido is not None and actual is None:
+                            cols[5].caption(f"↳ precargado ({valor_medido:+.2f}%)")
+            st.markdown("")
 
         st.markdown("")
         medidas = [f for f in d.clases if f.variacion_pct is not None]

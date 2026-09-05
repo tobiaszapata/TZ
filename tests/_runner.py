@@ -40,6 +40,8 @@ MODULOS = [
     "tests.test_auditoria_cobertura",
     "tests.test_mapeo_clasificacion",
     "tests.test_exportar_sin_clasificar",
+    "tests.test_reclasificar",
+    "tests.test_canasta_navegacion",
     "tests.test_deteccion_reconstruccion",
     "tests.test_confirmacion_fechas",
     "tests.test_nombre_producto_vacio",

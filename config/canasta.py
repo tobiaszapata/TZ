@@ -145,6 +145,13 @@ ITEMS = [
     Item("07.2.3", "Conservación y reparación de vehículos de uso del hogar", "clase", '07.2', {"GBA": 0.0015, "Pampeana": 0.0014, "Noreste": 0.001, "Noroeste": 0.0007, "Cuyo": 0.0022, "Patagonia": 0.0016}, Cobertura.PENDIENTE),
     Item("07.2.4", "Servicios relativos a los vehículos de uso del hogar", "clase", '07.2', {"GBA": 0.0059, "Pampeana": 0.0029, "Noreste": 0.0015, "Noroeste": 0.002, "Cuyo": 0.0018, "Patagonia": 0.0013}, Cobertura.PENDIENTE),
     Item("07.3", "Transporte público", "grupo", '07', {"GBA": 0.0402, "Pampeana": 0.0198, "Noreste": 0.0196, "Noroeste": 0.0235, "Cuyo": 0.0225, "Patagonia": 0.0244}, Cobertura.PENDIENTE),
+    # 07.3.1 SOLO tiene peso en GBA segun la fuente oficial
+    # (ponderadores_ipc.xls): el resto de las regiones viene en blanco,
+    # consistente con que el transporte ferroviario de pasajeros es
+    # practicamente exclusivo del AMBA. Declarado en 0% en las demas
+    # regiones, no omitido, para que quede explicito que es una lectura
+    # correcta de la fuente y no un hueco de carga.
+    Item("07.3.1", "Servicios de transporte ferroviario", "clase", '07.3', {"GBA": 0.004, "Pampeana": 0.0, "Noreste": 0.0, "Noroeste": 0.0, "Cuyo": 0.0, "Patagonia": 0.0}, Cobertura.PENDIENTE),
     Item("07.3.2", "Servicios de transporte automotor", "clase", '07.3', {"GBA": 0.0332, "Pampeana": 0.0193, "Noreste": 0.0191, "Noroeste": 0.0233, "Cuyo": 0.021, "Patagonia": 0.0217}, Cobertura.PENDIENTE),
     Item("07.3.3", "Servicios de transporte aéreo", "clase", '07.3', {"GBA": 0.0026, "Pampeana": 0.0003, "Noreste": 0.0002, "Noroeste": 0.0001, "Cuyo": 0.0011, "Patagonia": 0.0021}, Cobertura.PENDIENTE),
     Item("07.3.6", "Otros servicios de transporte", "clase", '07.3', {"GBA": 0.0004, "Pampeana": 0.0002, "Noreste": 0.0002, "Noroeste": 0.0001, "Cuyo": 0.0005, "Patagonia": 0.0006}, Cobertura.PENDIENTE),
@@ -196,6 +203,25 @@ CANASTA: dict[str, Item] = {it.codigo: it for it in ITEMS}
 
 def divisiones() -> list[Item]:
     return [it for it in ITEMS if it.nivel == "division"]
+
+
+def grupos_de_division(div_codigo: str) -> list[Item]:
+    """Los grupos (nivel intermedio) de una división, en el orden en que
+    aparecen en la tabla oficial. Necesario para la navegación de 3
+    niveles división > grupo > clase que reemplazó al intento anterior
+    de agregar un cuarto nivel (subclase) — el usuario señaló que INDEC
+    no publica ponderadores oficiales por debajo de clase, así que
+    subclase hubiera exigido inventar/estimar pesos sin fuente, cuando
+    grupo y clase ya cubren perfecto lo que sí está confirmado
+    (ver docs/coicop_notas_explicativas.md y la tabla de
+    ponderadores_ipc.xls, verificada con 0 divergencias)."""
+    return [it for it in ITEMS if it.nivel == "grupo" and it.padre == div_codigo]
+
+
+def clases_de_grupo(grupo_codigo: str) -> list[Item]:
+    """Las clases de un grupo específico — el tercer nivel de la
+    navegación división > grupo > clase."""
+    return [it for it in ITEMS if it.nivel == "clase" and it.padre == grupo_codigo]
 
 
 def clases_de_division(div_codigo: str) -> list[Item]:

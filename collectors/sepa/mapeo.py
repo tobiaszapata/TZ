@@ -99,19 +99,51 @@ REGLAS: list[ReglaClase] = [
 
     # --- 09.3.1 Juguetes
     ReglaClase("09.3.1", incluir=[_p("juguete","muneca","muneco","rompecabeza","puzzle",
-                                      "peluche","ladrillos","juego de mesa")]),
+                                      "peluche","ladrillos","juego de mesa","videojuego"),
+                                  # "consola" sola es ambigua (consola de sonido,
+                                  # de audio); se exige el contexto de videojuegos
+                                  r"consola.{0,15}(videojuego|playstation|xbox|nintendo|switch)",
+                                  # "pistola de agua" es juguete (COICOP 09.3.1), pero
+                                  # "pistola" sola tambien atraparia "pistola de silicona"
+                                  # (herramienta de ferreteria) — se exige la palabra
+                                  # "agua" junto a "pistola" para acotarlo al caso real.
+                                  # Bug real: sin esto, "PISTOLA AGUA C/GAS" caia en
+                                  # Aguas y bebidas (01.2.2) por las palabras sueltas de
+                                  # gas, en vez de en Juguetes.
+                                  r"pistola.{0,10}agua"]),
 
     # --- 06.1 Salud (venta libre en gondola)
+    # CORREGIDO segun la nota oficial (docs/coicop_notas_explicativas.md):
+    # 06.1.1 son especificamente MEDICAMENTOS ("medicamentos patentados...
+    # alopaticos u homeopaticos, vacunas, vitaminas, antibioticos,
+    # antiinflamatorios"). Curita/gasa/venda/termometro/suero fisiologico
+    # son "elementos para primeros auxilios" segun la definicion oficial,
+    # y esos van a 06.1.2, no aca. Se habian puesto juntos por intuicion
+    # propia sin verificar la separacion oficial entre las dos subclases.
     ReglaClase("06.1.1", incluir=[_p("ibuprofeno","paracetamol","aspirina","antiacido",
-                                      "analgesico","curita","alcohol en gel","gasa","venda",
-                                      "termometro","suero fisiologico","repelente")]),
+                                      "analgesico","antibiotico","antiinflamatorio",
+                                      "vitamina","vitaminas","antigripal")]),
     # "algodon" solo (medicinal): excluye textiles y prendas que tambien
     # mencionan "algodon" en su composicion (sabana, toalla, remera,
     # pantalon, etc.) — sin esto, "REMERA ALGODON HOMBRE" o "SABANA 100%
     # ALGODON" caian aca en vez de en indumentaria/textiles del hogar.
     # Bug real encontrado al auditar por que las reglas de esas
     # categorias, ya escritas desde antes, nunca aplicaban.
-    ReglaClase("06.1.2", incluir=[_p("algodon","apositos","agua oxigenada")],
+    ReglaClase("06.1.2", incluir=[_p("algodon","apositos","agua oxigenada","alcohol en gel",
+                                      "alcohol medicinal",
+                                      # curita/gasa/venda/termometro/suero: movidos aca
+                                      # desde 06.1.1 segun la definicion oficial de
+                                      # "elementos para primeros auxilios" (ver arriba).
+                                      "curita","gasa","venda","termometro",
+                                      "suero fisiologico","repelente",
+                                      # CORREGIDO segun la nota explicativa oficial de
+                                      # INDEC (docs/coicop_notas_explicativas.md, 06.1.2):
+                                      # "elementos para primeros auxilios... termometros,
+                                      # PRESERVATIVOS". Se habia puesto antes en Cuidado
+                                      # personal (12.1.3) por intuicion propia, sin
+                                      # verificar contra la definicion oficial completa —
+                                      # esa fue una suposicion equivocada.
+                                      "preservativo","preservativos","forro")],
               excluir=[_p("sabana","sabanas","toalla","toallon","acolchado",
                           "almohada","funda","cortina","mantel","repasador",
                           "frazada","manta","tela","hilado",
@@ -128,31 +160,70 @@ REGLAS: list[ReglaClase] = [
                                       "maquinita","coloracion","tintura","crema corporal",
                                       "protector solar","talco","algodon hisopo","hisopos",
                                       # abreviaturas reales encontradas en SEPA
-                                      "jab toc","crem dent","tampon","tampones","sh anti caida")]),
+                                      "jab toc","crem dent","tampon","tampones","sh anti caida",
+                                      # CORREGIDO segun la nota oficial de INDEC
+                                      # (docs/coicop_notas_explicativas.md, 12.1.3.1):
+                                      # "descartables para cuidado personal: cepillos
+                                      # dentales, hilo dental, repuestos de afeitar,
+                                      # panales, PAPEL HIGIENICO, toallas higienicas,
+                                      # protectores diarios". Estaba puesto en Limpieza
+                                      # del hogar (05.6.1) por intuicion propia — la
+                                      # definicion oficial lo pone aca.
+                                      "papel higienico","p hig")]),
 
     # --- 05.6.1 Limpieza del hogar
     ReglaClase("05.6.1", incluir=[_p("detergente","lavandina","jabon en polvo","jabon liquido",
                                       "suavizante","limpiador","desinfectante","desengrasante",
                                       "limpia vidrios","quitamanchas","insecticida","apresto",
                                       "esponja","virulana","trapo","escoba","secador",
-                                      "bolsas de residuos","bolsa de residuo","papel higienico",
+                                      "bolsas de residuos","bolsa de residuo",
                                       "rollo de cocina","servilletas","antihumedad",
+                                      "mantel papel","mantel descartable",
                                       "lustramuebles","enjuague concent","aromatizante","desengras",
                                       "limpiavidrio","jabon para la ropa","perfumina",
                                       # abreviaturas reales encontradas en SEPA (ver
                                       # scripts/diagnosticar_mapeo.py): muchos comercios
-                                      # truncan la descripcion por limite de caracteres
-                                      "p hig","lavavaji")]),
+                                      # truncan la descripcion por limite de caracteres.
+                                      # "p hig"/"papel higienico" SE SACARON de aca: segun
+                                      # la definicion oficial van a Cuidado personal
+                                      # (12.1.3.1), ver arriba.
+                                      "lavavaji",
+                                      # vasos/platos descartables van aca segun la
+                                      # definicion oficial (05.6.1.3), no en Bazar (05.4.1).
+                                      # Patron flexible porque en la practica suele
+                                      # aparecer "VASO PLASTICO DESCARTABLE", con una
+                                      # palabra en el medio.
+                                      r"(vaso|plato)s?.{0,15}descartables?",
+                                      # del documento de INDEC: rollos de aluminio/film y
+                                      # pilas/lamparas van con "bienes para el hogar",
+                                      # no con electro ni con alimentos. Patron propio
+                                      # (no _p()) para "papel/rollo de aluminio" — la
+                                      # palabra "aluminio" sola es demasiado generica y
+                                      # atrapaba ollas/sartenes de aluminio (que van a
+                                      # Bazar, 05.4.1, no a Limpieza del hogar).
+                                      r"(papel|rollo).{0,15}aluminio",
+                                      "papel film","film transparente",
+                                      "pilas aa","pilas aaa","lampara","lamparita")]),
 
     # --- 05.4.1 Bazar y menaje
+    # CORREGIDO segun la nota oficial (05.4.1: vajilla y utensilios
+    # REUTILIZABLES; excluye explicitamente vasos/platos DESCARTABLES,
+    # que van a 05.6.1 "articulos descartables"). Se excluye la palabra
+    # "descartable" para que un vaso/plato de un solo uso no caiga aca.
     ReglaClase("05.4.1", incluir=[_p("vaso","plato","taza","jarro","olla","sarten","cacerola",
                                       "cubiertos","tenedor","cuchillo","cuchara","bowl",
                                       "fuente","bandeja","tupper","recipiente","pinza cocina",
-                                      "colador","rallador","tabla de picar")]),
+                                      "colador","rallador","tabla de picar")],
+              excluir=[_p("descartable","descartables")]),
     # --- 05.2.1 Textiles del hogar
     ReglaClase("05.2.1", incluir=[_p("sabana","sabanas","toallon","toalla","acolchado",
                                       "almohada","funda","cortina","mantel","repasador",
-                                      "frazada","manta")]),
+                                      "frazada","manta")],
+              # mantel/servilleta de PAPEL (descartable) va a 05.6.1, no
+              # a textiles del hogar — la definicion oficial de 05.2.1.2
+              # dice explicitamente "manteles" pero se refiere a los de
+              # tela; los de papel son "articulos descartables" (05.6.1.3).
+              excluir=[_p("papel","descartable")]),
 
     # --- 03.2.1 Zapatos y otros calzados
     # Palabras deliberadamente ESPECIFICAS de calzado, evitando terminos
@@ -178,20 +249,31 @@ REGLAS: list[ReglaClase] = [
     ReglaClase("02.1.2", incluir=[_p("vino","vinos","espumante","champagne","sidra")]),
     ReglaClase("02.1.3", incluir=[_p("cerveza","cervezas","birra","cerv")]),
     ReglaClase("02.1.1", incluir=[_p("whisky","vodka","gin","ron","fernet","aperitivo",
-                                      "licor","tequila","aperital","vermut")]),
+                                      "licor","tequila","aperital","vermut",
+                                      "brandy","conac","cognac","aguardiente")]),
 
     # --- 01.1 Alimentos
     ReglaClase("01.1.1", incluir=[_p("pan","panes","galletitas","galleta","gall","harina",
                                       "fideo","fideos","arroz","avena","cereal","tostadas",
                                       "budin","bizcochuelo","premezcla","polenta","salvado",
                                       "pastas","noquis","gnocchetti","ravioles","tapa empanada",
-                                      "baguette")]),
+                                      "baguette","torta","brownie",
+                                      # snacks de cereales/maiz, segun el criterio de
+                                      # finalidad del documento de INDEC (van con
+                                      # panificados y snacks a base de cereal, no
+                                      # con la materia prima que evoca el sabor)
+                                      "nachos","chizito","chisito","palito salado","palitos salados")],
+              # "torta helada" es un excepcion oficial explicita: la nota de
+              # 01.1.8.3 (Helados) dice "helados... incluye postres y
+              # TORTAS HELADAS" — sin esto, "TORTA HELADA CHOCOLATE" caia
+              # en Pan y cereales por la palabra "torta".
+              excluir=[_p("torta helada","helado")]),
     ReglaClase("01.1.2", incluir=[_p("asado","carne","carnicero","pollo","milanesa","hamburguesa",
                                       "salchicha","jamon","salame","salamin","fiambre","mortadela",
                                       "bondiola","matambre","chorizo","morcilla","pechuga",
                                       "nalga","cuadril","peceto","paleta","costilla","vacio",
-                                      "medallon","panceta","lomo")],
-               excluir=[_p("lomo d/atun","atun",
+                                      "medallon","panceta","lomo","leberwurst","pate")],
+               excluir=[_p("lomo d/atun","atun","caldo","cubito de caldo",
                             # marcas y terminos de alimento para mascotas:
                             # sin esto, "BOCADITOS D/POLLO RAZA" caeria aca
                             "raza","pedigree","whiskas","dogchow","cat chow",
@@ -202,7 +284,12 @@ REGLAS: list[ReglaClase] = [
                                       "camaron","langostino","calamar","mariscos")]),
     ReglaClase("01.1.4", incluir=[_p("leche","yogur","yoghurt","queso","manteca","crema de leche",
                                       "dulce de leche","huevo","huevos","postre lacteo","ricota",
-                                      "flan","mantecol")]),
+                                      "flan","mantecol")],
+              # "CHIZITOS QUESO", "PALITOS SABOR QUESO", etc.: son snacks
+              # (van a Pan y cereales, 01.1.1), no lacteos, aunque el
+              # sabor sea queso. Bug real: "CHIZITOS QUESO" caia en
+              # Lacteos por la palabra suelta "queso".
+              excluir=[_p("chizito","chisito","palito","snack","papas fritas")]),
     ReglaClase("01.1.5", incluir=[_p("aceite","aceites","margarina","grasa","oliva","fritolim")]),
     ReglaClase("01.1.6", incluir=[_p("manzana","banana","naranja","limon","mandarina","pera",
                                       "uva","durazno","frutilla","kiwi","anana","sandia","melon",
@@ -214,24 +301,39 @@ REGLAS: list[ReglaClase] = [
                                       "choclo","lenteja","lentejas","arveja","arvejas","poroto",
                                       "porotos","garbanzo","brocoli","coliflor","pepino","apio",
                                       "puerro","remolacha","berenjena","chaucha","chauchas",
-                                      "champignon","verdura","verduras","jardinera")]),
+                                      "champignon","verdura","verduras","jardinera")],
+              # "CALDO DE VERDURA" no es una verdura fresca, es un producto
+              # procesado (misma logica de "finalidad del gasto" del
+              # documento de INDEC): sin esto, la palabra suelta "verdura"
+              # se lo robaba a Otros alimentos (01.1.9), donde ya esta
+              # declarado "caldo" como palabra clave.
+              excluir=[_p("caldo","sopa","cubito")]),
     ReglaClase("01.1.8", incluir=[_p("azucar","dulce","mermelada","chocolate","golosina","caramelo",
                                       "caram","alfajor","miel","gomitas","turron","bombon",
                                       "pastillas","past","chicle","edulcorante","cacao","oblea",
                                       "cubanito","tableta","barra de cereal","helado",
-                                      "postre","budin","torta","brownie","nugaton")],
+                                      "postre","nugaton")],
                excluir=[_p("dulce de leche")]),
     ReglaClase("01.1.9", incluir=[_p("sal","condimento","especias","molinillo especias","vinagre",
                                       "mayonesa","ketchup","mostaza","salsa","aderezo","caldo",
                                       "sopa","pure","saborizador","aceitunas","conserva",
-                                      "escabeche","levadura","gelatina")]),
+                                      "escabeche","levadura","gelatina","polvo de hornear",
+                                      "polvo p/hornear","aceto")]),
 
     # --- 01.2 Bebidas no alcoholicas
     ReglaClase("01.2.1", incluir=[_p("cafe","yerba","yerba mate","te","cacao en polvo","mate cocido",
                                       "capuccino","cappuccino","infusion","saquitos")]),
     ReglaClase("01.2.2", incluir=[_p("gaseosa","agua mineral","agua saborizada","jugo","jugos",
                                       "soda","energizante","isotonica","bebida sin alcohol",
-                                      "amargo serrano","tonica","gaseo","s/gas","c/gas")]),
+                                      "amargo serrano","tonica","gaseo",
+                                      # "s/gas" y "c/gas" SUELTOS son ambiguos: matcheaban
+                                      # "PISTOLA AGUA C/GAS" (un juguete, deberia ir a
+                                      # 09.3.1) ademas de "AGUA S/GAS" real. La definicion
+                                      # oficial de INDEC para esta subclase habla siempre
+                                      # de "agua... con o sin gas" en la misma frase, nunca
+                                      # como abreviatura aislada — se corrige exigiendo la
+                                      # palabra "agua" junto al gas.
+                                      r"agua.{0,10}(s/gas|c/gas)")]),
 ]
 
 # EAN fijados a mano después de revisar un archivo real. Formato:

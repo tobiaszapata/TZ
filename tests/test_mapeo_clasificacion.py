@@ -80,14 +80,103 @@ def test_abreviaturas_de_higiene_y_limpieza_se_clasifican():
     'JAB TOC' (jabon de tocador), 'CREM DENT' (crema dental), 'TAMPON',
     'P HIG' (papel higienico) y 'LAVAVAJI' (lavavajilla) — todas
     verificadas contra los 3 dias reales antes de agregarlas, sin
-    coincidencias falsas."""
+    coincidencias falsas.
+
+    NOTA: 'P HIG' (papel higienico) se movio de 05.6.1 a 12.1.3 tras
+    auditar la definicion oficial completa de INDEC — ver
+    docs/coicop_notas_explicativas.md, subclase 12.1.3.1, que dice
+    explicitamente 'papel higienico' como descartable de cuidado
+    personal, no de limpieza del hogar."""
     assert clasificar("JAB TOC ANTIBACTERIA") == "12.1.3"
     assert clasificar("CREM DENT TRIP BENEF") == "12.1.3"
     assert clasificar("TAMPON SUPER") == "12.1.3"
     assert clasificar("SH ANTI CAIDA ROMERO") == "12.1.3"
-    assert clasificar("P HIG DOBLE HOJA 30M") == "05.6.1"
+    assert clasificar("P HIG DOBLE HOJA 30M") == "12.1.3"
     assert clasificar("LAVAVAJI BIOACT LIMA") == "05.6.1"
 
 
 def test_baguette_es_pan_y_cereales():
     assert clasificar("BAGUETTE") == "01.1.1"
+
+
+def test_snacks_de_cereales_van_a_pan_y_cereales_no_a_lacteos():
+    """Hallazgo del documento README_Metodologia_INDEC.pdf subido por el
+    usuario: los snacks a base de cereal/maiz van con panificados (misma
+    logica de 'finalidad del gasto' que separa mascotas de carnes), no
+    con la materia prima que evoca su sabor. Bug real encontrado:
+    'CHIZITOS QUESO' caia en Lacteos (01.1.4) por la palabra suelta
+    'queso', en vez de en Pan y cereales (01.1.1)."""
+    assert clasificar("NACHOS SABOR ORIGINAL") == "01.1.1"
+    assert clasificar("CHIZITOS QUESO") == "01.1.1"
+    assert clasificar("PALITOS SALADOS") == "01.1.1"
+    # el caso real que motivo la exclusion: sigue siendo lacteo
+    assert clasificar("QUESO CREMOSO") == "01.1.4"
+
+
+def test_leberwurst_y_pate_son_carnes():
+    assert clasificar("LEBERWURST") == "01.1.2"
+    assert clasificar("PATE DE HIGADO") == "01.1.2"
+
+
+def test_caldo_de_verdura_es_otros_alimentos_no_verdura():
+    """Bug real: la palabra suelta 'verdura' en la regla de Verduras
+    (01.1.7) se robaba 'CALDO DE VERDURA', que es un producto procesado
+    y deberia ir a Otros alimentos (01.1.9) junto con 'caldo' comun."""
+    assert clasificar("CALDO DE VERDURA") == "01.1.9"
+    assert clasificar("CALDO DE POLLO") == "01.1.9"
+    # las verduras frescas reales siguen funcionando
+    assert clasificar("ZANAHORIA X KG") == "01.1.7"
+    assert clasificar("VERDURA MIXTA CONGELADA") == "01.1.7"  # esto SI es verdura
+
+
+def test_polvo_de_hornear_es_otros_alimentos():
+    assert clasificar("POLVO DE HORNEAR") == "01.1.9"
+
+
+def test_preservativos_son_salud_no_cuidado_personal():
+    """CORREGIDO: se había puesto antes en Cuidado personal (12.1.3) por
+    intuición propia, sin leer la definición oficial completa de INDEC.
+    El documento COICOP Argentina (docs/coicop_notas_explicativas.md,
+    subclase 06.1.2) dice explícitamente: "elementos para primeros
+    auxilios... termómetros, preservativos" — van en Salud (06.1.2), no
+    en Cuidado personal. Esta es una corrección real de un error de
+    clasificación, no un ajuste de abreviatura."""
+    assert clasificar("PRESERVATIVOS X3") == "06.1.2"
+
+
+def test_aluminio_y_pilas_son_limpieza_del_hogar_sin_atrapar_bazar():
+    """Del documento de INDEC: rollo/papel de aluminio y pilas van con
+    'bienes para el hogar' (05.6.1). Se verifica ademas que la palabra
+    NO sea tan generica como para atrapar ollas o sartenes de aluminio,
+    que van a Bazar (05.4.1) — ese fue un riesgo real detectado antes
+    de agregar la regla."""
+    assert clasificar("ROLLO DE ALUMINIO") == "05.6.1"
+    assert clasificar("PAPEL ALUMINIO 30M") == "05.6.1"
+    assert clasificar("PILAS AA X4") == "05.6.1"
+    # riesgo de colision verificado: utensilios de cocina de aluminio
+    # tienen que seguir yendo a Bazar, no a Limpieza del hogar
+    assert clasificar("OLLA DE ALUMINIO") == "05.4.1"
+    assert clasificar("SARTEN ALUMINIO ANTIADHERENTE") == "05.4.1"
+
+
+def test_pistola_de_agua_es_juguete_no_bebida():
+    """Bug real reportado por el usuario: 'PISTOLA AGUA C/GAS' caía en
+    Aguas y bebidas (01.2.2) por las abreviaturas sueltas de gas
+    ('s/gas', 'c/gas') agregadas para capturar 'agua con/sin gas'. Según
+    la definición oficial de INDEC (docs/coicop_notas_explicativas.md,
+    subclase 09.3.1: 'juguetes de todo tipo'), una pistola de agua es
+    un juguete. Corregido exigiendo que las claves de gas aparezcan
+    junto a la palabra 'agua' real, y agregando el patrón específico
+    'pistola...agua' a la regla de juguetes (que está antes en el orden
+    de evaluación)."""
+    assert clasificar("PISTOLA AGUA C/GAS") == "09.3.1"
+    assert clasificar("PISTOLA AGUA JUGUETE") == "09.3.1"
+
+    # el agua real, con o sin gas, tiene que seguir clasificando bien
+    assert clasificar("AGUA S/GAS MINERAL") == "01.2.2"
+    assert clasificar("AGUA C/GAS 1.5L") == "01.2.2"
+    assert clasificar("AGUA MINERAL S/GAS") == "01.2.2"
+
+    # riesgo de colision verificado: "pistola" sola no debe matchear
+    # herramientas de ferreteria (pistola de silicona)
+    assert clasificar("PISTOLA SILICONA CALIENTE") is None

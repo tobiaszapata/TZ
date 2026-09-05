@@ -105,3 +105,81 @@ def test_carpeta_carga_solo_lo_nuevo_si_ya_habia_algo():
             r2.stdout + r2.stderr
         )
         assert "Listo: 1 archivos cargados." in r2.stdout
+
+
+def test_forzar_rescata_un_producto_que_antes_no_clasificaba():
+    """El caso real que motivo --forzar: se mejora una regla de
+    mapeo.py, y hay dias YA CARGADOS donde un producto se habia
+    descartado por completo (nunca llego a guardarse, no solo mal
+    clasificado). scripts/reclasificar.py no puede rescatar esto porque
+    el producto nunca existio en la base — hace falta releer el ZIP
+    original de ese dia puntual, y --forzar es la forma de hacerlo sin
+    tener que borrar TODA la base."""
+    with tempfile.TemporaryDirectory() as t:
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        datos = proyecto / "datos_sepa"
+
+        # Primera carga: un producto que SI clasifica (para que el dia
+        # quede registrado en la base) y otro que NO matchea ninguna
+        # regla todavia (simula "todavia no existe esa regla"). Con un
+        # solo producto sin clasificar, el dia entero quedaria con 0
+        # filas en precios_raw y el sistema no lo consideraria "cargado"
+        # -- no reflejaria el caso real, donde la mayoria de los
+        # productos de un dia SI clasifican y solo una minoria queda
+        # afuera.
+        carpeta_fecha = datos / "2026-08-09"
+        carpeta_fecha.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(carpeta_fecha / "sepa_1_comercio-sepa-1_2026-08-09.zip", "w") as z:
+            z.writestr(
+                "productos.csv",
+                "id_producto|productos_descripcion|productos_precio_lista|id_comercio\n"
+                "EAN_BANANA|Banana x kg|100|1\n"
+                "EAN_RARO|PRODUCTO SIN REGLA TODAVIA XYZ|200|1\n",
+            )
+        r1 = _correr(proyecto, ["--carpeta", str(datos)])
+        assert "clasificadas                  1" in r1.stdout, r1.stdout
+
+        # Agrego una regla nueva que SI clasifica ese producto (simula
+        # una mejora real de mapeo.py hecha despues de la primera carga)
+        mapeo_path = proyecto / "collectors" / "sepa" / "mapeo.py"
+        contenido = mapeo_path.read_text()
+        contenido = contenido.replace(
+            "REGLAS: list[ReglaClase] = [",
+            'REGLAS: list[ReglaClase] = [\n'
+            '    ReglaClase("09.3.1", incluir=[r"producto sin regla todavia xyz"]),',
+        )
+        mapeo_path.write_text(contenido)
+
+        # Sin --forzar: el dia se saltea, el producto sigue perdido
+        r2 = _correr(proyecto, ["--carpeta", str(datos)])
+        assert "Ya estaban en la base" in r2.stdout, r2.stdout + r2.stderr
+
+        # Con --forzar: el dia se recarga entero, el producto se rescata
+        # (ahora clasifican los 2: Banana, que ya clasificaba, y el
+        # producto rescatado por la regla nueva)
+        r3 = _correr(proyecto, ["--carpeta", str(datos), "--forzar"])
+        assert "clasificadas                  2" in r3.stdout, r3.stdout + r3.stderr
+
+
+def test_forzar_no_afecta_dias_que_no_estan_en_la_carpeta():
+    """--forzar solo debe recargar los dias que efectivamente esten en
+    la carpeta pasada — no debe tocar otros dias ya cargados que no
+    aparezcan ahi."""
+    with tempfile.TemporaryDirectory() as t:
+        proyecto = Path(t)
+        _copiar_proyecto_a(proyecto)
+        datos = proyecto / "datos_sepa"
+
+        _zip_de_prueba(datos / "2026-08-09", "2026-08-09", ean="EAN1", nombre="Banana x kg")
+        _zip_de_prueba(datos / "2026-08-10", "2026-08-10", ean="EAN2", nombre="Manzana x kg")
+        _correr(proyecto, ["--carpeta", str(datos)])
+
+        # dejo SOLO el archivo del 09 en la carpeta, y fuerzo
+        import shutil
+        shutil.rmtree(datos / "2026-08-10")
+        r = _correr(proyecto, ["--carpeta", str(datos), "--forzar"])
+
+        # el 09 se reprocesa (aparece "cargados" > 0), el 10 sigue en la
+        # base intacto porque no estaba en la carpeta para forzar
+        assert "1 archivos cargados" in r.stdout, r.stdout + r.stderr

@@ -178,6 +178,13 @@ def main() -> None:
     ap.add_argument("--archivo", type=Path, help="ZIP o CSV de un dia")
     ap.add_argument("--fecha", help="YYYY-MM-DD (obligatorio con --archivo)")
     ap.add_argument("--carpeta", type=Path, help="carpeta con varios ZIP a cargar de una vez")
+    ap.add_argument("--forzar", action="store_true",
+                    help="reprocesar aunque la fecha ya este cargada (borra sus filas viejas "
+                         "primero). Uso: cuando se agrega una regla de clasificacion nueva y "
+                         "hay dias ya cargados donde ese producto se habia descartado por "
+                         "completo (no solo mal clasificado) — scripts/reclasificar.py no puede "
+                         "rescatar esos casos porque el producto nunca llego a guardarse, asi "
+                         "que hace falta releer el ZIP original de ese dia puntual.")
     args = ap.parse_args()
 
     if args.inventario:
@@ -245,8 +252,23 @@ def main() -> None:
                     fecha = None
 
             if fecha and fecha in ya_cargadas:
-                ya_estaban.append(fecha)
-                continue
+                if args.forzar:
+                    # Borrar las filas viejas de ESTE dia puntual antes de
+                    # recargarlo. Necesario porque insertar_observaciones
+                    # es "insert or ignore" por (fecha, ean, comercio,
+                    # region) — sin borrar antes, un producto que antes se
+                    # descartaba por completo (sin clase) y ahora SI
+                    # clasifica no se agregaria, porque tecnicamente esa
+                    # fila nunca existio para el motor de "ya esta, no
+                    # insertar de nuevo" (el conflicto es por otra cosa:
+                    # simplemente nunca se llamo a insertar_observaciones
+                    # para esa fila). Borrar y recargar entero es la forma
+                    # simple y correcta de asegurar que TODO lo del dia
+                    # quede con la clasificacion actual.
+                    con.execute("DELETE FROM precios_raw WHERE fecha = ?", (fecha,))
+                else:
+                    ya_estaban.append(fecha)
+                    continue
 
             try:
                 cargar_archivo(con, p, fecha)
