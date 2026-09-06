@@ -26,8 +26,26 @@ hace explicito y pide confirmacion, para que no sea un accidente.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
+import stat
 from pathlib import Path
+
+
+def _forzar_borrado(func, path, exc_info) -> None:
+    """Manejador de errores para shutil.rmtree, pensado para Windows.
+
+    POR QUE ESTO EXISTE: carpetas sincronizadas con OneDrive (algo muy
+    comun, ya que la ruta tipica del proyecto en Windows es
+    "...\\OneDrive\\Desktop\\...") a veces marcan archivos como "solo
+    lectura" mientras sincronizan — shutil.rmtree normal falla ahi con
+    PermissionError, aunque el archivo sea perfectamente borrable una
+    vez que se le saca ese atributo. Este manejador reintenta quitando
+    el atributo de solo lectura antes de reintentar el borrado, en vez
+    de fallar. En Linux/Mac esto no hace falta (nunca se llega a
+    disparar), pero no molesta tenerlo."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 # Ancladas al archivo, no al directorio de trabajo del proceso —
 # ver la explicacion completa en scripts/reconstruir.py.
@@ -76,7 +94,7 @@ def main() -> None:
         LOG_PATH.unlink()
         print(f"Borrado: {LOG_PATH}")
     if args.con_historico and HISTORICO.exists():
-        shutil.rmtree(HISTORICO)
+        shutil.rmtree(HISTORICO, onexc=_forzar_borrado)
         print(f"Borrado: {HISTORICO}/")
 
     print("\nListo. Para arrancar de nuevo:")
