@@ -301,6 +301,36 @@ def precios_por_producto_en_rango(
     return resultado
 
 
+def precios_por_producto_en_multiples_rangos(
+    con: sqlite3.Connection, clase_codigo: str, bloques: list[tuple[str, str]],
+    region: str | None = None,
+) -> dict[str, list[float]]:
+    """Igual que `precios_por_producto_en_rango`, pero para VARIOS bloques
+    de fechas a la vez (ej. varias semanas de días hábiles dentro de un
+    mes, saltando los fines de semana intermedios). `bloques` es una
+    lista de (desde, hasta), cada uno inclusive, en formato 'YYYY-MM-DD'.
+
+    PUNTO CLAVE, verificado explícitamente a pedido del usuario: esta
+    función NO calcula un promedio por bloque y después promedia esos
+    promedios entre sí — eso daría un resultado matemáticamente distinto
+    (le da el mismo peso a un bloque de 5 días que a un bloque de 1 día
+    suelto, como el último día hábil de un mes que cae solo en su propia
+    semana). En cambio, TODAS las observaciones sueltas de TODOS los
+    bloques se juntan en una sola lista por producto, y la media
+    geométrica se calcula una sola vez sobre esa lista completa — así
+    cada observación individual pesa igual, sin importar en qué bloque
+    cayó. Esto es lo mismo que ya hace `precios_por_producto_en_rango`
+    para un solo rango continuo; acá simplemente se repite la misma
+    consulta por cada bloque y se combinan los resultados ANTES de que
+    nadie calcule ningún promedio."""
+    resultado: dict[str, list[float]] = {}
+    for desde, hasta in bloques:
+        parcial = precios_por_producto_en_rango(con, clase_codigo, desde, hasta, region)
+        for ean_o_id, precios in parcial.items():
+            resultado.setdefault(ean_o_id, []).extend(precios)
+    return resultado
+
+
 def valores_diarios_de_clase(
     con: sqlite3.Connection, clase_codigo: str, mes: str
 ) -> list[tuple[str, float]]:

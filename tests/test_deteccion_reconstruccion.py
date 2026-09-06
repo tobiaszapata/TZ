@@ -30,8 +30,25 @@ def test_base_al_dia_con_historico_no_hace_falta_reconstruir():
     assert hace_falta_reconstruir(db_existe=True, dias_en_base=12, dias_en_historico=12) is False
 
 
-def test_base_con_mas_dias_que_historico_no_reconstruye():
-    """No debería pasar en la práctica (la base siempre viene de
-    historico/), pero si pasara, no hay que hacer nada raro: no hace
-    falta reconstruir solo porque la base tenga MAS que el respaldo."""
-    assert hace_falta_reconstruir(db_existe=True, dias_en_base=12, dias_en_historico=9) is False
+def test_base_con_mas_dias_que_historico_si_reconstruye():
+    """CORREGIDO: este es exactamente el caso real que le pasó al usuario
+    — reinició todo y volvió a cargar con MENOS días (sacó los días no
+    hábiles: de 28 a 19). La base en memoria de Streamlit Cloud (que
+    sigue con el proceso viejo corriendo) tenía MAS días que el
+    historico/ actualizado, y con la logica vieja ("reconstruir solo si
+    hay MAS en historico") nunca se disparaba la reconstruccion —
+    Streamlit seguia mostrando los 28 días viejos. La logica correcta:
+    cualquier DIFERENCIA (para mas o para menos) tiene que disparar la
+    reconstruccion, porque el historico/ es la fuente de verdad real."""
+    assert hace_falta_reconstruir(db_existe=True, dias_en_base=12, dias_en_historico=9) is True
+
+
+def test_caso_real_reiniciar_con_menos_dias_dispara_reconstruccion():
+    """Caso real reportado: el usuario reinicio la base+historico, cargo
+    solo dias habiles (19 dias, en vez de los 28 que tenia antes con
+    fines de semana incluidos), subio el historico/ actualizado a
+    GitHub, pero Streamlit Cloud seguia mostrando 28 dias — porque el
+    proceso de Python en el servidor segui corriendo con la base vieja
+    en memoria, y la logica anterior no detectaba una REDUCCION de
+    dias como un cambio que ameritara reconstruir."""
+    assert hace_falta_reconstruir(db_existe=True, dias_en_base=28, dias_en_historico=19) is True

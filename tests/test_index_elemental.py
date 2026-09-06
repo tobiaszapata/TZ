@@ -86,3 +86,60 @@ def test_precios_por_producto_en_rango_trae_todas_las_fechas_del_rango():
         assert todos["EAN1"] == [100.0, 200.0, 300.0]
         con.close()
 
+
+
+def test_multiples_rangos_junta_observaciones_no_promedia_por_bloque():
+    """Pedido explicito del usuario: al comparar dias habiles usando
+    varios bloques de fechas (para saltar fines de semana intermedios,
+    ej. semana 3-7 agosto + el 31 de agosto suelto), el resultado tiene
+    que ser la media geometrica de TODAS las observaciones sueltas
+    juntas — NUNCA el promedio de "el promedio de cada bloque". Ese
+    segundo metodo le da el mismo peso a un bloque de 5 dias que a un
+    bloque de 1 dia suelto, lo cual es matematicamente incorrecto."""
+    from pathlib import Path
+    import tempfile
+    from engine.index_elemental import ObservacionVariedad
+    from storage.db import conectar, insertar_observaciones, precios_por_producto_en_multiples_rangos
+
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "test.db")
+        obs = []
+        for dia, precio in zip(["03", "04", "05", "06", "07"], [100, 101, 102, 103, 104]):
+            obs.append((ObservacionVariedad(f"2026-08-{dia}", "EAN1", "C1", float(precio),
+                                            "Producto test", region="GBA"), "01.1.6"))
+        obs.append((ObservacionVariedad("2026-08-31", "EAN1", "C1", 115.0,
+                                        "Producto test", region="GBA"), "01.1.6"))
+        insertar_observaciones(con, obs)
+
+        bloques = [("2026-08-03", "2026-08-07"), ("2026-08-31", "2026-08-31")]
+        resultado = precios_por_producto_en_multiples_rangos(con, "01.1.6", bloques)
+
+        # las 6 observaciones sueltas, todas juntas, sin ningun promedio intermedio
+        assert resultado["EAN1"] == [100.0, 101.0, 102.0, 103.0, 104.0, 115.0]
+        con.close()
+
+
+def test_multiples_rangos_con_un_solo_bloque_da_lo_mismo_que_rango_simple():
+    """Con un solo bloque, tiene que dar exactamente lo mismo que la
+    funcion de un solo rango — no debe introducir ninguna diferencia."""
+    from pathlib import Path
+    import tempfile
+    from engine.index_elemental import ObservacionVariedad
+    from storage.db import (
+        conectar, insertar_observaciones,
+        precios_por_producto_en_multiples_rangos, precios_por_producto_en_rango,
+    )
+
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "test.db")
+        insertar_observaciones(con, [
+            (ObservacionVariedad("2026-08-10", "EAN1", "C1", 100.0, "Producto test", region="GBA"), "01.1.6"),
+            (ObservacionVariedad("2026-08-11", "EAN1", "C1", 105.0, "Producto test", region="GBA"), "01.1.6"),
+        ])
+
+        rango_simple = precios_por_producto_en_rango(con, "01.1.6", "2026-08-10", "2026-08-11")
+        multibloque = precios_por_producto_en_multiples_rangos(
+            con, "01.1.6", [("2026-08-10", "2026-08-11")])
+
+        assert rango_simple == multibloque
+        con.close()

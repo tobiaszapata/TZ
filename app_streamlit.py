@@ -309,11 +309,59 @@ with st.sidebar:
         )
 
     st.markdown("**Período a analizar** _(el más reciente, para ver cómo viene la inflación ahora)_")
-    d1 = st.date_input("desde", d1, min_value=d_min, max_value=d_max, key="d1")
-    h1 = st.date_input("hasta", h1, min_value=d_min, max_value=d_max, key="h1")
-    st.markdown("**Comparado contra**")
-    d0 = st.date_input("desde ", d0, min_value=d_min, max_value=d_max, key="d0")
-    h0 = st.date_input("hasta ", h0, min_value=d_min, max_value=d_max, key="h0")
+
+    modo_multibloque = st.checkbox(
+        "Armar el período con varios tramos de fechas (para saltar fines de semana "
+        "u otros días sueltos dentro de un mes)",
+        value=False,
+        key="modo_multibloque",
+        help="Usar esto en vez de un solo 'desde/hasta' cuando el período que "
+             "querés analizar tiene huecos en el medio — por ejemplo, un mes "
+             "completo pero salteando los fines de semana. Cada tramo se junta "
+             "con los demás ANTES de calcular el promedio (nunca se promedia "
+             "'el promedio de cada tramo' por separado — eso le daría el mismo "
+             "peso a un tramo de 5 días que a un tramo de 1 día suelto)."
+    )
+
+    if modo_multibloque:
+        st.caption(
+            "Período a analizar — agregá los tramos que hagan falta (ej. lunes a "
+            "viernes de cada semana del mes, saltando los fines de semana):"
+        )
+        n_tramos_1 = st.number_input("Cantidad de tramos", min_value=1, max_value=10,
+                                     value=st.session_state.get("n_tramos_1", 1),
+                                     key="n_tramos_1")
+        bloques_1: list[tuple[date, date]] = []
+        for i in range(n_tramos_1):
+            c1, c2 = st.columns(2)
+            b_desde = c1.date_input(f"desde (tramo {i+1})", d1, min_value=d_min,
+                                    max_value=d_max, key=f"b1_desde_{i}")
+            b_hasta = c2.date_input(f"hasta (tramo {i+1})", h1, min_value=d_min,
+                                    max_value=d_max, key=f"b1_hasta_{i}")
+            bloques_1.append((b_desde, b_hasta))
+        d1, h1 = bloques_1[0][0], bloques_1[-1][1]  # solo para el resumen/preset; el cálculo real usa bloques_1
+
+        st.markdown("**Comparado contra** — agregá los tramos equivalentes del período anterior:")
+        n_tramos_0 = st.number_input("Cantidad de tramos ", min_value=1, max_value=10,
+                                     value=st.session_state.get("n_tramos_0", 1),
+                                     key="n_tramos_0")
+        bloques_0: list[tuple[date, date]] = []
+        for i in range(n_tramos_0):
+            c1, c2 = st.columns(2)
+            b_desde = c1.date_input(f"desde (tramo {i+1}, base)", d0, min_value=d_min,
+                                    max_value=d_max, key=f"b0_desde_{i}")
+            b_hasta = c2.date_input(f"hasta (tramo {i+1}, base)", h0, min_value=d_min,
+                                    max_value=d_max, key=f"b0_hasta_{i}")
+            bloques_0.append((b_desde, b_hasta))
+        d0, h0 = bloques_0[0][0], bloques_0[-1][1]
+    else:
+        bloques_1 = None
+        bloques_0 = None
+        d1 = st.date_input("desde", d1, min_value=d_min, max_value=d_max, key="d1")
+        h1 = st.date_input("hasta", h1, min_value=d_min, max_value=d_max, key="h1")
+        st.markdown("**Comparado contra**")
+        d0 = st.date_input("desde ", d0, min_value=d_min, max_value=d_max, key="d0")
+        h0 = st.date_input("hasta ", h0, min_value=d_min, max_value=d_max, key="h0")
 
     # ------------------------------------------------------------
     # PASO DE CONFIRMACION, a pedido: en vez de calcular el resultado
@@ -323,7 +371,17 @@ with st.sidebar:
     # Solo hace falta confirmar una vez por sesion; despues, cambiar el
     # preset o las fechas vuelve a pedir confirmacion (se detecta
     # guardando cual fue la ultima combinacion ya confirmada).
-    combinacion_actual = (d1, h1, d0, h0)
+    #
+    # En modo multibloque, (d1, h1, d0, h0) es solo un RESUMEN (primer y
+    # ultimo tramo) — si se incluyera nada mas eso, cambiar un tramo
+    # INTERMEDIO (ni el primero ni el ultimo) no dispararia una nueva
+    # confirmacion, porque el resumen no habria cambiado. Se incluyen los
+    # bloques completos en la combinacion para que cualquier cambio en
+    # cualquier tramo si dispare la re-confirmacion.
+    if st.session_state.get("modo_multibloque"):
+        combinacion_actual = (tuple(bloques_1), tuple(bloques_0))
+    else:
+        combinacion_actual = (d1, h1, d0, h0)
     ya_confirmada = not hace_falta_confirmar(
         combinacion_actual, st.session_state.get("fechas_confirmadas")
     )
@@ -358,7 +416,21 @@ with st.sidebar:
             st.session_state.overrides_division = {}
             st.rerun()
 
-D1, H1, D0, H0 = (x.isoformat() for x in (d1, h1, d0, h0))
+if st.session_state.get("modo_multibloque"):
+    # Modo multiples tramos: D1/D0 son TUPLAS de (desde, hasta) en vez de
+    # un solo string — ver engine.consultas.variacion_clase, que ya sabe
+    # distinguir ambos casos. Se usa tupla y no lista a proposito: las
+    # funciones cacheadas con @st.cache_data (mas abajo) necesitan
+    # argumentos "hasheables" para armar su clave de cache, y una lista
+    # de tuplas NO es hasheable en Python (una tupla de tuplas si lo es).
+    # H1/H0 quedan en None porque no se usan cuando el primer argumento
+    # ya es una secuencia de tramos completos.
+    D1 = tuple((b[0].isoformat(), b[1].isoformat()) for b in bloques_1)
+    H1 = None
+    D0 = tuple((b[0].isoformat(), b[1].isoformat()) for b in bloques_0)
+    H0 = None
+else:
+    D1, H1, D0, H0 = (x.isoformat() for x in (d1, h1, d0, h0))
 ov_clase = st.session_state.overrides_clase if modo_simulacion else {}
 ov_division = st.session_state.overrides_division if modo_simulacion else {}
 

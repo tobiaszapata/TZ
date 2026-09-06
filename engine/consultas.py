@@ -48,6 +48,7 @@ from engine.agregacion import laspeyres
 from engine.reporte import calcular_clase_y_productos
 from storage.db import (
     nombres_de_productos,
+    precios_por_producto_en_multiples_rangos,
     precios_por_producto_en_rango,
 )
 
@@ -78,9 +79,27 @@ def variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region=Non
     """Variacion de una clase entre dos ventanas de fechas, con el detalle
     por producto. Devuelve (resultado, drivers) o (None, []) si no hay
     productos comparables. Esto SIEMPRE lee de la base — los overrides se
-    aplican una capa mas arriba (division_completa), nunca aca."""
-    p_act = precios_por_producto_en_rango(con, clase, desde, hasta, region)
-    p_base = precios_por_producto_en_rango(con, clase, desde_base, hasta_base, region)
+    aplican una capa mas arriba (division_completa), nunca aca.
+
+    `desde`/`hasta` y `desde_base`/`hasta_base` pueden ser:
+      - un string de fecha ('YYYY-MM-DD'): rango continuo simple (caso de
+        siempre).
+      - una LISTA de tuplas (desde, hasta): varios tramos de fechas, para
+        poder saltar dias sueltos en el medio (tipico: comparar solo dias
+        habiles dentro de un mes, saltando los fines de semana). Ver
+        storage.db.precios_por_producto_en_multiples_rangos — TODAS las
+        observaciones de TODOS los tramos se juntan antes de calcular la
+        media geometrica, nunca se promedia "el promedio de cada tramo"
+        (eso le daria el mismo peso a un tramo de 5 dias que a uno de 1
+        dia suelto, lo cual esta mal)."""
+    if isinstance(desde, (list, tuple)) and desde and isinstance(desde[0], (list, tuple)):
+        p_act = precios_por_producto_en_multiples_rangos(con, clase, desde, region)
+    else:
+        p_act = precios_por_producto_en_rango(con, clase, desde, hasta, region)
+    if isinstance(desde_base, (list, tuple)) and desde_base and isinstance(desde_base[0], (list, tuple)):
+        p_base = precios_por_producto_en_multiples_rangos(con, clase, desde_base, region)
+    else:
+        p_base = precios_por_producto_en_rango(con, clase, desde_base, hasta_base, region)
     eans = list(set(p_act) | set(p_base))
     if not eans:
         return None, []
@@ -620,9 +639,16 @@ def hace_falta_reconstruir(db_existe: bool, dias_en_base: int, dias_en_historico
     reiniciaba el proceso solo) y otros no, sin ningún patrón visible
     desde afuera.
 
-    La corrección es simple: si `historico/` tiene MÁS días que los que ya
-    están cargados en la base, hay datos nuevos que todavía no se
-    incorporaron — hay que reconstruir de nuevo."""
+    La corrección original comparaba solo "¿hay MÁS días en historico/
+    que en la base?" — eso cubre agregar días nuevos, pero no el caso
+    real que pasó después: reiniciar todo (scripts.reiniciar
+    --con-historico) y volver a cargar con MENOS días (por ejemplo, sacar
+    los días no hábiles: de 28 días a 19). Con la condición vieja,
+    19 > 28 da False, y Streamlit Cloud —que sigue con el proceso viejo
+    corriendo, con 28 días en memoria— nunca detectaba que tenía que
+    reconstruir. La corrección: comparar DESIGUALDAD, no solo "más" —
+    cualquier diferencia en la cantidad de días (para arriba o para
+    abajo) dispara la reconstrucción."""
     if not db_existe:
         return dias_en_historico > 0
-    return dias_en_historico > dias_en_base
+    return dias_en_historico != dias_en_base

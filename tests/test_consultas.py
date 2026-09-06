@@ -17,6 +17,7 @@ from engine.consultas import (
     indice_nacional,
     indice_region,
     resumen_divisiones,
+    variacion_clase,
 )
 from engine.index_elemental import ObservacionVariedad
 from storage.db import conectar, insertar_observaciones
@@ -439,3 +440,62 @@ def test_nivel_general_con_una_division_faltante_difiere_del_oficial_por_cobertu
                      __import__("config.canasta", fromlist=["divisiones"]).divisiones())
     cobertura = resultado.peso_cubierto / peso_total
     assert cobertura < 0.94, f"cobertura esperada por debajo de 94%, se obtuvo {cobertura:.2%}"
+
+
+def test_variacion_clase_con_multiples_bloques_de_fechas():
+    """Pedido explicito del usuario: poder armar el periodo a comparar
+    con VARIOS tramos de fechas en vez de un solo rango continuo (para
+    saltar fines de semana u otros dias sueltos dentro de un mes, sin
+    tener que recargar ni reiniciar nada). Se pasa una tupla de tuplas
+    (desde, hasta) en vez de un string de fecha simple."""
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "test.db")
+        obs = []
+        for dia, precio in zip(["03", "04", "05"], [110, 111, 112]):
+            obs.append((ObservacionVariedad(f"2026-08-{dia}", "EAN1", "C1", float(precio),
+                                            "Producto test", region="GBA"), "01.1.6"))
+        obs.append((ObservacionVariedad("2026-08-31", "EAN1", "C1", 120.0,
+                                        "Producto test", region="GBA"), "01.1.6"))
+        for dia, precio in zip(["01", "02", "03"], [100, 101, 102]):
+            obs.append((ObservacionVariedad(f"2026-07-{dia}", "EAN1", "C1", float(precio),
+                                            "Producto test", region="GBA"), "01.1.6"))
+        insertar_observaciones(con, obs)
+
+        bloques_actual = (("2026-08-03", "2026-08-05"), ("2026-08-31", "2026-08-31"))
+        bloques_base = (("2026-07-01", "2026-07-03"),)
+
+        resultado, drivers = variacion_clase(
+            con, "01.1.6", bloques_actual, None, bloques_base, None, region="GBA")
+
+        assert resultado is not None
+        assert len(drivers) == 1
+        con.close()
+
+
+def test_variacion_clase_con_un_bloque_da_lo_mismo_que_string_simple():
+    """Con un solo tramo, el resultado tiene que ser identico al de pasar
+    un string de fecha simple — no debe introducir ninguna diferencia."""
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "test.db")
+        insertar_observaciones(con, [
+            (ObservacionVariedad("2026-08-10", "EAN1", "C1", 100.0, "Producto test", region="GBA"), "01.1.6"),
+            (ObservacionVariedad("2026-08-11", "EAN1", "C1", 105.0, "Producto test", region="GBA"), "01.1.6"),
+            (ObservacionVariedad("2026-07-10", "EAN1", "C1", 90.0, "Producto test", region="GBA"), "01.1.6"),
+            (ObservacionVariedad("2026-07-11", "EAN1", "C1", 92.0, "Producto test", region="GBA"), "01.1.6"),
+        ])
+
+        resultado_string, _ = variacion_clase(
+            con, "01.1.6", "2026-08-10", "2026-08-11", "2026-07-10", "2026-07-11", region="GBA")
+        resultado_tupla, _ = variacion_clase(
+            con, "01.1.6", (("2026-08-10", "2026-08-11"),), None,
+            (("2026-07-10", "2026-07-11"),), None, region="GBA")
+
+        assert resultado_string.variacion_pct == resultado_tupla.variacion_pct
+
+
+def test_bloques_de_fechas_son_hasheables_para_el_cache_de_streamlit():
+    """Streamlit necesita argumentos hasheables para @st.cache_data. Una
+    LISTA de tuplas no es hasheable en Python; una TUPLA de tuplas si —
+    por eso app_streamlit.py arma los tramos como tupla, no como lista."""
+    bloques = (("2026-08-03", "2026-08-05"), ("2026-08-31", "2026-08-31"))
+    hash(bloques)  # no debe tirar TypeError
