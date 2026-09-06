@@ -66,3 +66,29 @@ def test_clases_de_division_sigue_funcionando_igual_que_antes():
     for g in grupos_de_division("01"):
         clases_por_grupo.update(c.codigo for c in clases_de_grupo(g.codigo))
     assert clases_directo == clases_por_grupo
+
+
+def test_grupo_sin_ninguna_clase_declarada_tiene_peso_oficial_propio():
+    """Caso real reportado: dentro de 'Bebidas alcoholicas y tabaco', el
+    grupo Tabaco (02.2) no tenia NINGUNA clase hija declarada — antes,
+    la interfaz simplemente lo saltaba sin ningun aviso, dando la
+    impresion de que 'Bebidas alcoholicas y tabaco' estaba completo.
+    Este test confirma que el grupo SI tiene su propio peso oficial
+    declarado (para poder mostrarlo con una aclaracion explicita de que
+    SEPA no lo releva, en vez de ocultarlo)."""
+    tabaco = grupos_de_division("02")
+    grupo_tabaco = next(g for g in tabaco if g.codigo == "02.2")
+    assert grupo_tabaco.peso("GBA") > 0
+    assert clases_de_grupo("02.2") == [], (
+        "se esperaba que Tabaco no tuviera ninguna clase hija declarada — "
+        "si esto cambio, la logica de la interfaz para este caso puede "
+        "necesitar revisarse"
+    )
+
+
+def test_bebidas_alcoholicas_si_tiene_clases_declaradas():
+    """Contraste: el grupo 02.1 (Bebidas alcoholicas) SI tiene sus 3
+    clases medidas, a diferencia de Tabaco."""
+    clases = clases_de_grupo("02.1")
+    codigos = {c.codigo for c in clases}
+    assert codigos == {"02.1.1", "02.1.2", "02.1.3"}

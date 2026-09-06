@@ -36,7 +36,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from config.canasta import grupos_de_division
+from config.canasta import Cobertura, clases_de_grupo, grupos_de_division
 from engine.consultas import (
     actualizar_override,
     hace_falta_reconstruir,
@@ -535,16 +535,42 @@ for d in divs_detalle:
 
         for grupo_item in grupos_de_esta_division:
             clases_del_grupo = clases_por_grupo.get(grupo_item.codigo, [])
-            if not clases_del_grupo:
-                continue  # este grupo no tiene ninguna clase medida hoy
+            # TODAS las clases oficiales de este grupo, medidas o no —
+            # antes, un grupo sin NINGUNA clase medida (ej. "02.2 Tabaco")
+            # directamente no se mostraba, desaparecia sin ningun aviso.
+            # Feedback real: "no aclaras que a tabaco no se lo releva".
+            # Ahora se muestran todas, marcando las no medidas de forma
+            # explicita en vez de ocultarlas.
+            clases_oficiales_del_grupo = clases_de_grupo(grupo_item.codigo)
+            codigos_medidos = {f.codigo for f in clases_del_grupo}
+            clases_no_medidas = [c for c in clases_oficiales_del_grupo
+                                 if c.codigo not in codigos_medidos]
 
-            peso_grupo = sum(f.peso for f in clases_del_grupo)
+            # Caso especial (ej. "02.2 Tabaco"): el grupo tiene peso
+            # oficial declarado, pero NINGUNA clase hija cargada en
+            # absoluto — ni medida, ni pendiente. Sin esto, ese grupo se
+            # saltaba directo y desaparecia de la pantalla sin ningun
+            # aviso, igual que el caso original reportado.
+            grupo_sin_ninguna_clase_declarada = (
+                not clases_del_grupo and not clases_no_medidas and grupo_item.peso("GBA") > 0
+            )
+            if not clases_del_grupo and not clases_no_medidas and not grupo_sin_ninguna_clase_declarada:
+                continue  # grupo realmente sin nada (ni siquiera peso oficial) — no hay nada que mostrar
+
+            if grupo_sin_ninguna_clase_declarada:
+                peso_grupo_medido = 0.0
+                peso_grupo_total = grupo_item.peso("GBA") * 100
+            else:
+                peso_grupo_medido = sum(f.peso for f in clases_del_grupo)
+                peso_grupo_no_medido = sum(c.peso("GBA") * 100 for c in clases_no_medidas)
+                peso_grupo_total = peso_grupo_medido + peso_grupo_no_medido
             medidas_grupo = [f for f in clases_del_grupo if f.variacion_pct is not None]
             if medidas_grupo:
                 aportes_grupo = [f.aporte_pp for f in medidas_grupo if f.aporte_pp is not None]
-                var_grupo = sum(aportes_grupo) / (peso_grupo / 100) if peso_grupo else None
+                var_grupo = sum(aportes_grupo) / (peso_grupo_medido / 100) if peso_grupo_medido else None
             else:
                 var_grupo = None
+                aportes_grupo = []
             aporte_grupo = sum(aportes_grupo) if medidas_grupo else None
 
             # El grupo se muestra en la MISMA fila de columnas que las
@@ -557,9 +583,21 @@ for d in divs_detalle:
             with st.container(border=True):
                 fila_grupo = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
                 fila_grupo[0].markdown(f"📁 **{grupo_item.codigo} · {grupo_item.nombre}**")
-                fila_grupo[1].markdown(f"**{peso_grupo:.2f}%**")
+                fila_grupo[1].markdown(f"**{peso_grupo_total:.2f}%**")
                 fila_grupo[2].markdown(f"**{_color(var_grupo)}**")
                 fila_grupo[3].markdown(f"**{_color(aporte_grupo) if aporte_grupo is not None else '—'}**")
+                if clases_no_medidas:
+                    st.caption(
+                        f"⚠️ De este grupo, SEPA no releva: "
+                        + ", ".join(f"**{c.nombre}** ({c.peso('GBA')*100:.2f}%)" for c in clases_no_medidas)
+                        + " — la variación de arriba solo refleja lo medido."
+                    )
+                elif grupo_sin_ninguna_clase_declarada:
+                    st.caption(
+                        f"🚫 SEPA no releva ninguna subcategoría de **{grupo_item.nombre}** "
+                        f"({peso_grupo_total:.2f}% de peso oficial) — no hay ninguna variación "
+                        "disponible para este grupo."
+                    )
 
                 cabecera = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
                 cabecera[0].markdown("**Clase**")
@@ -601,6 +639,20 @@ for d in divs_detalle:
                             )
                             if valor_medido is not None and actual is None:
                                 cols[5].caption(f"↳ precargado ({valor_medido:+.2f}%)")
+
+                # Clases oficiales que SEPA no releva: se muestran igual,
+                # en la misma tabla, con una fila explicita en vez de
+                # simplemente omitirlas. Esto es lo que pidio el usuario
+                # con el ejemplo de Tabaco dentro de Bebidas alcoholicas.
+                for c in clases_no_medidas:
+                    cols = st.columns([3, 1, 1.2, 1, 0.9, 1.2] if mostrar_edicion else [3, 1, 1.2, 1])
+                    cols[0].write(f"{c.codigo} {c.nombre} 🚫")
+                    cols[1].write(f"{c.peso('GBA')*100:.2f}%")
+                    cols[2].write("*no relevado por SEPA*")
+                    cols[3].write("—")
+                    if mostrar_edicion:
+                        cols[4].write("")
+                        cols[5].write("")
             st.markdown("")
 
         st.markdown("")

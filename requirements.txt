@@ -1,7 +1,1 @@
-# Fase 1 corre solo con librería estándar de Python (ver docs/decisiones.md
-# — SQLite en vez de Postgres, sin duckdb todavía). Lo de abajo es para
-# cuando se sume la ingesta real y se quiera mejor output de tests.
-pytest>=8.0
-pandas>=2.0
-# duckdb>=1.0   # descomentar cuando se migre la ingesta a volúmenes de SEPA nacional (ver docs/decisiones.md)
 streamlit>=1.30
