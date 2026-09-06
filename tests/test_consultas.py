@@ -491,6 +491,7 @@ def test_variacion_clase_con_un_bloque_da_lo_mismo_que_string_simple():
             (("2026-07-10", "2026-07-11"),), None, region="GBA")
 
         assert resultado_string.variacion_pct == resultado_tupla.variacion_pct
+        con.close()
 
 
 def test_bloques_de_fechas_son_hasheables_para_el_cache_de_streamlit():

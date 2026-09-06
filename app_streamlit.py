@@ -311,16 +311,18 @@ with st.sidebar:
     st.markdown("**Período a analizar** _(el más reciente, para ver cómo viene la inflación ahora)_")
 
     modo_multibloque = st.checkbox(
-        "Armar el período con varios tramos de fechas (para saltar fines de semana "
-        "u otros días sueltos dentro de un mes)",
+        "Elegir manualmente qué tramos de fechas incluir (en vez de tomar TODOS "
+        "los días entre 'desde' y 'hasta')",
         value=False,
         key="modo_multibloque",
-        help="Usar esto en vez de un solo 'desde/hasta' cuando el período que "
-             "querés analizar tiene huecos en el medio — por ejemplo, un mes "
-             "completo pero salteando los fines de semana. Cada tramo se junta "
-             "con los demás ANTES de calcular el promedio (nunca se promedia "
-             "'el promedio de cada tramo' por separado — eso le daría el mismo "
-             "peso a un tramo de 5 días que a un tramo de 1 día suelto)."
+        help="Sin tildar: se usa un solo rango 'desde/hasta' con TODOS los días "
+             "que haya cargados en el medio (el comportamiento de siempre). "
+             "Tildado: armás el período con varios tramos sueltos — útil para "
+             "saltar fines de semana u otros días específicos dentro de un mes. "
+             "Cada tramo se junta con los demás ANTES de calcular el promedio "
+             "(nunca se promedia 'el promedio de cada tramo' por separado — eso "
+             "le daría el mismo peso a un tramo de 5 días que a un tramo de 1 "
+             "día suelto)."
     )
 
     if modo_multibloque:
