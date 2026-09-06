@@ -18,6 +18,7 @@ from engine.consultas import (
     indice_region,
     resumen_divisiones,
     variacion_clase,
+    variacion_de_grupo,
 )
 from engine.index_elemental import ObservacionVariedad
 from storage.db import conectar, insertar_observaciones
@@ -500,3 +501,93 @@ def test_bloques_de_fechas_son_hasheables_para_el_cache_de_streamlit():
     por eso app_streamlit.py arma los tramos como tupla, no como lista."""
     bloques = (("2026-08-03", "2026-08-05"), ("2026-08-31", "2026-08-31"))
     hash(bloques)  # no debe tirar TypeError
+
+
+def test_variacion_de_grupo_con_clases_constantes_da_ese_mismo_valor():
+    """Caso base: si TODAS las clases de un grupo tienen la misma
+    variacion, el grupo tiene que dar exactamente esa variacion (es la
+    prueba mas simple de que un promedio ponderado esta bien armado)."""
+    from engine.consultas import FilaClase
+    filas = [
+        FilaClase("01.1.1", "Pan y cereales", peso=4.05, variacion_pct=1.1, n_productos=10),
+        FilaClase("01.1.2", "Carnes", peso=6.98, variacion_pct=1.1, n_productos=10),
+    ]
+    variacion, peso_medido = variacion_de_grupo(filas)
+    assert math.isclose(variacion, 1.1)
+    assert math.isclose(peso_medido, 4.05 + 6.98)
+
+
+def test_bug_real_grupo_no_puede_dar_menos_que_sus_clases_ni_mas():
+    """CASO REAL REPORTADO: el usuario vio la division 'Alimentos y
+    bebidas no alcoholicas' con +0.28%, pero sus dos grupos (Alimentos
+    +1.1%, Bebidas +0.71%) daban AMBOS mas que la division — algo
+    matematicamente imposible para un promedio ponderado (el resultado
+    siempre tiene que quedar entre el minimo y el maximo de sus partes).
+    La causa real: se reutilizaba el aporte_pp de cada clase (calculado
+    con el denominador de TODA LA DIVISION) y se dividia otra vez por el
+    peso de un solo grupo, mezclando dos escalas. Este test verifica que
+    la variacion de un grupo con clases de distinto valor quede
+    correctamente ACOTADA entre el minimo y el maximo de esas clases."""
+    from engine.consultas import FilaClase
+    filas = [
+        FilaClase("01.1.1", "Pan y cereales", peso=4.05, variacion_pct=1.1, n_productos=10),
+        FilaClase("01.1.2", "Carnes", peso=6.98, variacion_pct=1.1, n_productos=10),
+        FilaClase("01.1.3", "Pescados", peso=0.51, variacion_pct=1.1, n_productos=10),
+    ]
+    variacion, _ = variacion_de_grupo(filas)
+    assert math.isclose(variacion, 1.1)  # todas iguales, el grupo tiene que dar exactamente eso
+
+    filas_mixtas = [
+        FilaClase("01.1.1", "Pan y cereales", peso=4.05, variacion_pct=2.0, n_productos=10),
+        FilaClase("01.1.2", "Carnes", peso=6.98, variacion_pct=0.5, n_productos=10),
+    ]
+    variacion_mixta, _ = variacion_de_grupo(filas_mixtas)
+    assert 0.5 <= variacion_mixta <= 2.0, (
+        f"la variacion de un grupo tiene que quedar entre el minimo y el "
+        f"maximo de sus clases — dio {variacion_mixta}, fuera de [0.5, 2.0]"
+    )
+
+
+def test_variacion_de_grupo_sin_datos_devuelve_none():
+    from engine.consultas import FilaClase
+    filas = [FilaClase("01.1.1", "Pan y cereales", peso=4.05, variacion_pct=None, n_productos=0)]
+    variacion, peso_medido = variacion_de_grupo(filas)
+    assert variacion is None
+    assert peso_medido == 0.0
+
+
+def test_grupo_dentro_de_division_real_queda_acotado_por_sus_clases():
+    """Reproduccion end-to-end del bug real usando
+    resumen_divisiones_desde_valores (la funcion que arma la division
+    completa) + variacion_de_grupo (la funcion corregida) — confirma que
+    el flujo completo, no solo la funcion aislada, da un resultado
+    matematicamente coherente."""
+    from engine.consultas import resumen_divisiones_desde_valores
+    from config.canasta import clases_de_grupo, grupos_de_division
+
+    valores_medidos = {}
+    for c in clases_de_grupo("01.1"):
+        valores_medidos[c.codigo] = 1.1
+    for c in clases_de_grupo("01.2"):
+        valores_medidos[c.codigo] = 0.71
+
+    resultado = resumen_divisiones_desde_valores(valores_medidos)
+    division_01 = next(r for r in resultado if r.codigo == "01")
+
+    clases_por_grupo = {}
+    for f in division_01.clases:
+        cod_grupo = f.codigo.rsplit(".", 1)[0]
+        clases_por_grupo.setdefault(cod_grupo, []).append(f)
+
+    variaciones_de_grupo = {}
+    for grupo_item in grupos_de_division("01"):
+        clases_del_grupo = clases_por_grupo.get(grupo_item.codigo, [])
+        if not clases_del_grupo:
+            continue
+        var_grupo, _ = variacion_de_grupo(clases_del_grupo)
+        variaciones_de_grupo[grupo_item.codigo] = var_grupo
+
+    assert math.isclose(variaciones_de_grupo["01.1"], 1.1)
+    assert math.isclose(variaciones_de_grupo["01.2"], 0.71)
+    # la division tiene que quedar entre el minimo y el maximo de sus grupos
+    assert 0.71 <= division_01.variacion_pct <= 1.1

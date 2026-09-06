@@ -44,6 +44,7 @@ from engine.consultas import (
     resumen_divisiones_desde_valores,
     valores_medidos_nacional,
     variacion_clase,
+    variacion_de_grupo,
 )
 from engine.fechas import acotar_rango, calcular_preset, hace_falta_confirmar
 from storage.db import conectar
@@ -651,8 +652,17 @@ for d in divs_detalle:
                 peso_grupo_total = peso_grupo_medido + peso_grupo_no_medido
             medidas_grupo = [f for f in clases_del_grupo if f.variacion_pct is not None]
             if medidas_grupo:
+                # Variacion PROPIA del grupo: se calcula con el peso DEL
+                # GRUPO como denominador (ver engine.consultas.variacion_de_grupo
+                # para el detalle del bug real que esto corrige — antes se
+                # reutilizaba f.aporte_pp, que esta en la escala de la
+                # DIVISION completa, y eso podia dar un grupo con variacion
+                # menor que la division, algo matematicamente imposible).
+                var_grupo, _peso_medido_grupo = variacion_de_grupo(medidas_grupo)
+                # El "aporte a la division" (columna de la tabla) SI usa la
+                # escala de la division completa — f.aporte_pp de cada clase
+                # ya esta bien calculado para eso.
                 aportes_grupo = [f.aporte_pp for f in medidas_grupo if f.aporte_pp is not None]
-                var_grupo = sum(aportes_grupo) / (peso_grupo_medido / 100) if peso_grupo_medido else None
             else:
                 var_grupo = None
                 aportes_grupo = []

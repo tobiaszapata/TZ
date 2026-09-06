@@ -510,6 +510,33 @@ def valores_medidos_nacional(con, desde, hasta, desde_base, hasta_base) -> dict[
     return valores
 
 
+def variacion_de_grupo(filas_del_grupo: list) -> tuple[float | None, float | None]:
+    """Variación PROPIA de un grupo (ej. '01.1 Alimentos'), a partir de las
+    FilaClase que ya se calcularon para la división completa.
+
+    BUG REAL QUE ESTO CORRIGE: en app_streamlit.py, la variación mostrada
+    para un grupo se calculaba sumando `f.aporte_pp` de sus clases (ese
+    aporte ya viene calculado con el denominador de LA DIVISIÓN COMPLETA,
+    ver `resumen_divisiones_desde_valores`) y dividiendo esa suma otra vez
+    por el peso de ESE grupo — mezclando dos escalas distintas. El síntoma
+    real reportado: la división daba +0.28%, pero sus dos únicos grupos
+    (Alimentos +1.1%, Bebidas +0.71%) daban ambos MÁS que la división —
+    matemáticamente imposible para un promedio ponderado (el resultado
+    siempre tiene que quedar entre el mínimo y el máximo de sus partes).
+
+    La variación PROPIA de un grupo tiene que ser un promedio ponderado
+    usando el peso DE ESE GRUPO como denominador, no el de la división.
+
+    Devuelve (variacion_pct_del_grupo, peso_medido_del_grupo) — o
+    (None, 0.0) si ninguna clase del grupo tiene dato."""
+    medidas = [f for f in filas_del_grupo if f.variacion_pct is not None]
+    peso_medido = sum(f.peso for f in medidas)
+    if not medidas or not peso_medido:
+        return None, 0.0
+    variacion = sum(f.peso * f.variacion_pct for f in medidas) / peso_medido
+    return variacion, peso_medido
+
+
 def resumen_divisiones_desde_valores(
     valores_medidos: dict[str, float],
     overrides_clase: dict[str, float] | None = None,
