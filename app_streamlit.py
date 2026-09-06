@@ -671,6 +671,18 @@ for d in divs_detalle:
                 res, drivers = _productos_de_clase_cacheado(_con(), cod, D1, H1, D0, H0)
                 if res:
                     total_productos = len(drivers)
+                    if res.metodo_imputacion is not None:
+                        etiqueta_metodo = {
+                            "grupo_superior_parcial": "parcial",
+                            "grupo_superior_total": "total",
+                        }.get(res.metodo_imputacion, res.metodo_imputacion)
+                        st.info(
+                            f"ℹ️ Cobertura de productos entre los dos períodos: "
+                            f"**{res.cobertura:.0%}** — por debajo del 50%, así que se aplicó "
+                            f"imputación **{etiqueta_metodo}** (Metodología N°32, sección 7.1): "
+                            "los productos que existían antes y ya no se ven quedan marcados "
+                            "abajo como \"(sin dato — imputado)\" en vez de desaparecer en silencio."
+                        )
                     ver_todos = st.checkbox(
                         f"Ver los {total_productos} productos (por defecto se muestran los "
                         "30 que más explican la variación)",

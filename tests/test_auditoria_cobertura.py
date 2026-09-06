@@ -128,6 +128,18 @@ def test_distingue_relevable_con_sepa_de_necesita_otra_fuente():
     venden en la gondola de un supermercado)."""
     from scripts.auditar_cobertura import _tipo_de_bien
     assert "relevable HOY con SEPA" in _tipo_de_bien("05.3.1")  # electrodomesticos chicos
-    assert "relevable HOY con SEPA" in _tipo_de_bien("09.5.1")  # libros
     assert "NO de supermercado" in _tipo_de_bien("07.1.1")  # vehiculos a motor
     assert "NO de supermercado" in _tipo_de_bien("08.2.2")  # celulares
+
+
+def test_libros_diarios_e_hilados_estan_investigados_y_descartados():
+    """Estas tres clases se habian marcado antes como 'relevable HOY con
+    SEPA', pero al investigarlas con datos reales de 3 dias completos no
+    se encontro volumen genuino de la categoria real (solo falsos
+    positivos de otra cosa) — corregido para que el reporte de auditoria
+    no vuelva a sugerirlas como oportunidad sin aclarar que ya se
+    investigaron."""
+    from scripts.auditar_cobertura import _tipo_de_bien
+    assert "Investigado" in _tipo_de_bien("09.5.1")  # Libros
+    assert "Investigado" in _tipo_de_bien("09.5.2")  # Diarios y revistas
+    assert "Investigado" in _tipo_de_bien("03.1.1")  # Materiales textiles/hilados

@@ -60,3 +60,29 @@ def test_precio_mensual_variedad_filtra_por_mes_y_usa_geometrica():
     resultado = precio_mensual_variedad(obs, "01.1.1", "2026-07")
     assert math.isclose(resultado.precio_promedio, 110.0, rel_tol=1e-9)
     assert resultado.n_observaciones == 2
+
+
+def test_precios_por_producto_en_rango_trae_todas_las_fechas_del_rango():
+    """precios_por_producto_en_rango no filtra por día de la semana — la
+    decisión sobre días hábiles se toma antes, al elegir qué archivos de
+    SEPA cargar (ver docs sobre por qué no se filtra por weekday() acá:
+    un filtro así no reconoce feriados, y dar la falsa sensación de
+    alinearse con la metodología de INDEC sin reconocerlos sería peor
+    que no filtrar nada)."""
+    from pathlib import Path
+    import tempfile
+    from engine.index_elemental import ObservacionVariedad
+    from storage.db import conectar, insertar_observaciones, precios_por_producto_en_rango
+
+    with tempfile.TemporaryDirectory() as t:
+        con = conectar(Path(t) / "test.db")
+        insertar_observaciones(con, [
+            (ObservacionVariedad("2026-08-10", "EAN1", "C1", 100.0, "Producto test", region="GBA"), "01.1.6"),
+            (ObservacionVariedad("2026-08-15", "EAN1", "C1", 200.0, "Producto test", region="GBA"), "01.1.6"),
+            (ObservacionVariedad("2026-08-16", "EAN1", "C1", 300.0, "Producto test", region="GBA"), "01.1.6"),
+        ])
+
+        todos = precios_por_producto_en_rango(con, "01.1.6", "2026-08-10", "2026-08-16")
+        assert todos["EAN1"] == [100.0, 200.0, 300.0]
+        con.close()
+

@@ -273,7 +273,16 @@ def precios_por_producto_en_rango(
 
     Se compara por rangos de igual longitud para que tenga sentido: no
     tiene sentido comparar una semana contra un mes entero. Quien llama es
-    responsable de pasar rangos comparables (ver scripts/consultar.py)."""
+    responsable de pasar rangos comparables (ver scripts/consultar.py).
+
+    NOTA sobre días hábiles: la Metodología N°32 de INDEC usa solo días
+    hábiles. Se evaluó filtrar sábados y domingos acá mismo, pero un
+    filtro por día de la semana NO reconoce feriados — hubiera dado una
+    falsa sensación de alineación con la metodología oficial sin serlo
+    realmente. La forma correcta y ya decidida: no cargar en absoluto los
+    archivos de SEPA de fines de semana y feriados (ver
+    scripts/correr_dia.py), así ningún día no hábil llega siquiera a
+    entrar a la base — no hace falta filtrar acá."""
     if region:
         cur = con.execute(
             """SELECT ean_o_id, precio FROM precios_raw

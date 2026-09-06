@@ -57,10 +57,16 @@ def test_pesos_proxy_suman_100():
     assert math.isclose(sum(d.peso_proxy_pct for d in drivers), 100.0, rel_tol=1e-9)
 
 
-def test_productos_no_comunes_se_cuentan_pero_no_entran_al_calculo():
-    # "nuevo" solo está este mes; "viejo" solo el anterior. Ninguno entra
-    # al cálculo de variación, pero sí quedan contados para que el reporte
-    # pueda avisar cuánta rotación de productos hubo.
+def test_productos_no_comunes_se_cuentan_y_los_faltantes_se_imputan():
+    # "nuevo" solo está este mes: no se puede saber su precio anterior,
+    # nunca puede tener variación -- queda fuera del calculo, pero se
+    # cuenta para el reporte de rotacion.
+    # "viejo" solo estaba el mes anterior: con la correccion de
+    # imputacion (Metodologia N°32, seccion 7.1), este producto YA NO
+    # se descarta en silencio -- como la cobertura queda en 50% (1 de 2
+    # productos del mes anterior sigue estando), cae en el tramo de
+    # imputacion parcial y se le asigna la variacion del agrupamiento
+    # superior (acá, la propia clase, unica variacion disponible).
     mes_actual = {"comun": [110.0] * 4, "nuevo": [50.0] * 4}
     mes_anterior = {"comun": [100.0] * 4, "viejo": [80.0] * 4}
     resultado, drivers = calcular_clase_y_productos(mes_actual, mes_anterior)
@@ -68,8 +74,17 @@ def test_productos_no_comunes_se_cuentan_pero_no_entran_al_calculo():
     assert resultado.n_productos_comparados == 1
     assert resultado.n_productos_solo_mes_actual == 1
     assert resultado.n_productos_solo_mes_anterior == 1
-    assert len(drivers) == 1
-    assert drivers[0].ean_o_id == "comun"
+    assert resultado.cobertura == 0.5
+    assert resultado.metodo_imputacion == "grupo_superior_parcial"
+    # "viejo" ahora SI aparece, marcado como imputado -- antes de la
+    # correccion, simplemente desaparecia del reporte sin ningun aviso
+    assert len(drivers) == 2
+    ean_ids = {d.ean_o_id for d in drivers}
+    assert ean_ids == {"comun", "viejo"}
+    viejo = next(d for d in drivers if d.ean_o_id == "viejo")
+    assert viejo.es_imputado is True
+    comun = next(d for d in drivers if d.ean_o_id == "comun")
+    assert comun.es_imputado is False
 
 
 def test_sin_productos_en_comun_devuelve_none():
@@ -108,3 +123,52 @@ def test_peso_proxy_no_depende_de_cuantos_productos_se_muestren():
         "si diera 100%, significaria que se esta recalculando el peso "
         "sobre el subconjunto mostrado, no sobre el total"
     )
+
+
+def test_cobertura_alta_no_imputa_nada_se_comporta_igual_que_antes():
+    """Con cobertura > 50% (la mayoria de los productos del periodo
+    anterior siguen presentes), el comportamiento tiene que seguir
+    siendo exactamente el de antes de la correccion: no se imputa nada,
+    los productos faltantes ni siquiera aparecen en drivers."""
+    mes_actual = {"A": [110.0] * 4, "B": [210.0] * 4, "C": [55.0] * 4}
+    mes_anterior = {"A": [100.0] * 4, "B": [200.0] * 4, "C": [50.0] * 4, "D": [80.0] * 4}
+    # cobertura = 3/4 = 75% > 50% -> sin imputacion
+    resultado, drivers = calcular_clase_y_productos(mes_actual, mes_anterior)
+
+    assert resultado.metodo_imputacion is None
+    assert resultado.cobertura == 0.75
+    assert len(drivers) == 3  # "D" no aparece, igual que el comportamiento historico
+    assert all(not d.es_imputado for d in drivers)
+
+
+def test_cobertura_baja_descarta_propio_y_usa_variacion_superior():
+    """Con cobertura < 20%, la Metodologia N°32 (seccion 7.1) dice que se
+    descartan los pocos precios validos que hay y se usa la variacion
+    del agrupamiento superior para TODA la clase — no solo para los
+    faltantes."""
+    mes_actual = {"unico": [105.0] * 4}
+    mes_anterior = {
+        "unico": [100.0] * 4, "b": [1] * 4, "c": [1] * 4, "d": [1] * 4,
+        "e": [1] * 4, "f": [1] * 4,
+    }
+    # cobertura = 1/6 = 16.7% < 20%
+    resultado, drivers = calcular_clase_y_productos(
+        mes_actual, mes_anterior, variacion_grupo_superior=3.5)
+
+    assert resultado.metodo_imputacion == "grupo_superior_total"
+    assert resultado.variacion_pct == 3.5  # la del grupo superior, no la propia (que seria +5%)
+
+
+def test_variacion_grupo_superior_explicita_se_usa_para_imputar():
+    """Cuando se pasa variacion_grupo_superior explicitamente (el valor
+    real del grupo, calculado aparte), se usa esa en vez de la
+    aproximacion (variacion de la propia clase) para los productos que
+    hace falta imputar."""
+    mes_actual = {"comun": [110.0] * 4, "nuevo": [50.0] * 4}
+    mes_anterior = {"comun": [100.0] * 4, "viejo": [80.0] * 4}
+    resultado, drivers = calcular_clase_y_productos(
+        mes_actual, mes_anterior, variacion_grupo_superior=2.0)
+
+    viejo = next(d for d in drivers if d.ean_o_id == "viejo")
+    assert viejo.variacion_pct == 2.0  # la del grupo superior pasada explicitamente
+    assert resultado.variacion_pct == 2.0  # tramo 20-50%: toda la clase usa la del superior

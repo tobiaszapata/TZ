@@ -57,12 +57,26 @@ _RELEVABLE_CON_SEPA_HOY = {
     "05.3.1",  # Artefactos para el hogar (electrodomesticos chicos: licuadora, plancha, microondas)
     "05.1.1",  # Muebles y accesorios (organizadores, sillas de jardin en hiper)
     "05.5.1",  # Herramientas para el hogar (ferreteria basica de un hiper)
-    "09.5.1",  # Libros (seccion libreria de un hiper)
-    "09.5.2",  # Diarios y revistas (kiosco/seccion de un hiper)
     "09.5.4",  # Papel y utiles de oficina (cuadernos, lapices)
     "09.1.4",  # Medios para grabacion (pendrives, CD virgenes)
-    "03.1.1",  # Materiales textiles, telas e hilados
     "03.1.3",  # Otros accesorios para el vestir
+}
+# INVESTIGADAS Y DESCARTADAS: se sospechaba que tenian volumen real en
+# SEPA, pero al verificar contra datos reales de 3 dias completos no se
+# encontro ninguna coincidencia genuina de la categoria real — solo
+# falsos positivos de otra cosa. Quedan documentadas para no volver a
+# investigarlas de cero mas adelante.
+_INVESTIGADO_Y_DESCARTADO = {
+    "09.5.1",  # Libros: el 100% del volumen real de "libro" en SEPA resultaron
+               # ser libros de actividades/colorear infantiles con licencia
+               # (Toy Story, Bluey, Star Wars) -- ya reclasificados a Juguetes
+               # (09.3.1). Cero libros de lectura/novelas genericas reales.
+    "09.5.2",  # Diarios y revistas: cero coincidencias reales de "revista" o
+               # "periodico" en 3 dias completos de SEPA -- probablemente se
+               # compran en kiosco, no en supermercado.
+    "03.1.1",  # Materiales textiles/hilados: el 100% del volumen real de
+               # "hilado" en SEPA era queso hilado (Nonna Pia, Vacalin,
+               # Lucrecia), ya clasificado correctamente como lacteo (01.1.4).
 }
 _BIEN_TANGIBLE_SCRAPEABLE = {
     "05.1.1", "05.3.1", "05.5.1", "06.1.3",
@@ -83,6 +97,8 @@ _SERVICIO_O_ALQUILER_DIFICIL = {
 def _tipo_de_bien(codigo: str) -> str:
     if codigo in _RELEVABLE_CON_SEPA_HOY:
         return "Vendido en supermercado — relevable HOY con SEPA (solo falta la regla)"
+    if codigo in _INVESTIGADO_Y_DESCARTADO:
+        return "Investigado con datos reales y descartado — sin volumen real en SEPA"
     if codigo in _BIEN_TANGIBLE_SCRAPEABLE:
         return "Bien físico, NO de supermercado — necesita scraping de otra fuente"
     if codigo in _TARIFA_REGULADA_O_COMBUSTIBLE:
