@@ -31,7 +31,7 @@ la base de datos. Ver tests/test_consultas.py::test_override_no_modifica_la_base
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import streamlit as st
@@ -326,7 +326,9 @@ with st.sidebar:
     if modo_multibloque:
         st.caption(
             "Período a analizar — agregá los tramos que hagan falta (ej. lunes a "
-            "viernes de cada semana del mes, saltando los fines de semana):"
+            "viernes de cada semana del mes, saltando los fines de semana). Para meter "
+            "un día suelto (ej. el 31 si cae solo en su propia semana), agregá un tramo "
+            "más y poné la misma fecha en 'desde' y 'hasta' de ese tramo."
         )
         n_tramos_1 = st.number_input("Cantidad de tramos", min_value=1, max_value=10,
                                      value=st.session_state.get("n_tramos_1", 1),
@@ -334,9 +336,16 @@ with st.sidebar:
         bloques_1: list[tuple[date, date]] = []
         for i in range(n_tramos_1):
             c1, c2 = st.columns(2)
-            b_desde = c1.date_input(f"desde (tramo {i+1})", d1, min_value=d_min,
+            # Sugerencia de fecha inicial para un tramo nuevo: el día
+            # siguiente al "hasta" del tramo anterior — asi, al agregar
+            # un tramo (ej. para meter el ultimo dia suelto del mes),
+            # alcanza con ajustar la fecha "hasta" de ese nuevo tramo en
+            # vez de tener que cambiar las dos fechas desde cero.
+            sugerido_desde = (bloques_1[i-1][1] + timedelta(days=1)) if i > 0 else d1
+            sugerido_hasta = sugerido_desde if i > 0 else h1
+            b_desde = c1.date_input(f"desde (tramo {i+1})", sugerido_desde, min_value=d_min,
                                     max_value=d_max, key=f"b1_desde_{i}")
-            b_hasta = c2.date_input(f"hasta (tramo {i+1})", h1, min_value=d_min,
+            b_hasta = c2.date_input(f"hasta (tramo {i+1})", sugerido_hasta, min_value=d_min,
                                     max_value=d_max, key=f"b1_hasta_{i}")
             bloques_1.append((b_desde, b_hasta))
         d1, h1 = bloques_1[0][0], bloques_1[-1][1]  # solo para el resumen/preset; el cálculo real usa bloques_1
@@ -348,9 +357,11 @@ with st.sidebar:
         bloques_0: list[tuple[date, date]] = []
         for i in range(n_tramos_0):
             c1, c2 = st.columns(2)
-            b_desde = c1.date_input(f"desde (tramo {i+1}, base)", d0, min_value=d_min,
+            sugerido_desde = (bloques_0[i-1][1] + timedelta(days=1)) if i > 0 else d0
+            sugerido_hasta = sugerido_desde if i > 0 else h0
+            b_desde = c1.date_input(f"desde (tramo {i+1}, base)", sugerido_desde, min_value=d_min,
                                     max_value=d_max, key=f"b0_desde_{i}")
-            b_hasta = c2.date_input(f"hasta (tramo {i+1}, base)", h0, min_value=d_min,
+            b_hasta = c2.date_input(f"hasta (tramo {i+1}, base)", sugerido_hasta, min_value=d_min,
                                     max_value=d_max, key=f"b0_hasta_{i}")
             bloques_0.append((b_desde, b_hasta))
         d0, h0 = bloques_0[0][0], bloques_0[-1][1]
