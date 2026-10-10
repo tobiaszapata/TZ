@@ -591,3 +591,73 @@ def test_grupo_dentro_de_division_real_queda_acotado_por_sus_clases():
     assert math.isclose(variaciones_de_grupo["01.2"], 0.71)
     # la division tiene que quedar entre el minimo y el maximo de sus grupos
     assert 0.71 <= division_01.variacion_pct <= 1.1
+
+
+def test_propiedad_de_acotamiento_en_las_12_divisiones_con_datos_aleatorios():
+    """Verificacion exhaustiva pedida explicitamente tras encontrar el bug
+    real: no alcanza con probar el caso puntual de Alimentos/Bebidas —
+    hay que confirmar que la propiedad matematica (un grupo/division
+    nunca puede dar menos que el minimo ni mas que el maximo de sus
+    partes) se cumple en TODAS las divisiones, con datos variados, no
+    solo con el caso que goteo el bug original."""
+    import random
+    from engine.consultas import resumen_divisiones_desde_valores
+    from config.canasta import divisiones, grupos_de_division, clases_de_grupo
+
+    random.seed(123)
+    grupos_verificados = 0
+    divisiones_verificadas = 0
+
+    for div in divisiones():
+        grupos = grupos_de_division(div.codigo)
+        if not grupos:
+            continue
+
+        valores_medidos = {}
+        for g in grupos:
+            for c in clases_de_grupo(g.codigo):
+                valores_medidos[c.codigo] = random.uniform(-5, 10)
+
+        if not valores_medidos:
+            continue
+
+        resultado = resumen_divisiones_desde_valores(valores_medidos)
+        div_resultado = next((r for r in resultado if r.codigo == div.codigo), None)
+        if not div_resultado or div_resultado.variacion_pct is None:
+            continue
+
+        clases_por_grupo = {}
+        for f in div_resultado.clases:
+            cod_grupo = f.codigo.rsplit(".", 1)[0]
+            clases_por_grupo.setdefault(cod_grupo, []).append(f)
+
+        variaciones_grupos = []
+        for g in grupos:
+            clases_del_grupo = clases_por_grupo.get(g.codigo, [])
+            if not clases_del_grupo:
+                continue
+            var_grupo, _ = variacion_de_grupo(clases_del_grupo)
+            if var_grupo is None:
+                continue
+
+            grupos_verificados += 1
+            valores_clases = [f.variacion_pct for f in clases_del_grupo if f.variacion_pct is not None]
+            minimo, maximo = min(valores_clases), max(valores_clases)
+            assert minimo - 1e-9 <= var_grupo <= maximo + 1e-9, (
+                f"grupo {g.codigo} de division {div.codigo}: variacion {var_grupo} "
+                f"fuera del rango [{minimo}, {maximo}] de sus propias clases"
+            )
+            variaciones_grupos.append(var_grupo)
+
+        if variaciones_grupos:
+            divisiones_verificadas += 1
+            minimo_g, maximo_g = min(variaciones_grupos), max(variaciones_grupos)
+            assert minimo_g - 1e-9 <= div_resultado.variacion_pct <= maximo_g + 1e-9, (
+                f"division {div.codigo}: variacion {div_resultado.variacion_pct} "
+                f"fuera del rango [{minimo_g}, {maximo_g}] de sus propios grupos"
+            )
+
+    # confirmar que la verificacion realmente cubrio algo, no que se
+    # salteo todo por falta de datos
+    assert grupos_verificados >= 10, f"se esperaban al menos 10 grupos verificados, hubo {grupos_verificados}"
+    assert divisiones_verificadas >= 5, f"se esperaban al menos 5 divisiones verificadas, hubo {divisiones_verificadas}"

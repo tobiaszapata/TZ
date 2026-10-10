@@ -29,3 +29,5 @@ aplicacion.html
 
 # Registros de las corridas automaticas en Windows: son locales.
 logs/
+
+historico_quitados/

@@ -43,6 +43,7 @@ MODULOS = [
     "tests.test_reclasificar",
     "tests.test_canasta_navegacion",
     "tests.test_reiniciar",
+    "tests.test_quitar_dias",
     "tests.test_deteccion_reconstruccion",
     "tests.test_confirmacion_fechas",
     "tests.test_nombre_producto_vacio",
