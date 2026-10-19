@@ -17,6 +17,7 @@ import csv
 import gzip
 from pathlib import Path
 
+from storage.carga_bajo_demanda import cargar_archivo_historico
 from storage.db import conectar
 
 # Ancladas a la ubicacion de este archivo, no al directorio de trabajo del
@@ -53,44 +54,13 @@ def reconstruir(borrar: bool = False, verboso: bool = True) -> int:
     total = 0
     total_nombres = 0
     for archivo in sorted(CARPETA.glob("*.csv.gz")):
-        with gzip.open(archivo, "rt", encoding="utf-8") as fh:
-            lector = csv.DictReader(fh)
-            # Compatibilidad con respaldos viejos: los archivos exportados
-            # antes de sumar el nombre de producto (ver
-            # scripts/exportar_dia.py) tienen 6 columnas, sin
-            # "nombre_producto". Detectarlo por encabezado, no por
-            # posicion, para no romper si el orden cambia el dia de manana.
-            tiene_nombre = lector.fieldnames and "nombre_producto" in lector.fieldnames
-
-            filas: list[tuple] = []
-            nombres: list[tuple] = []
-            for r in lector:
-                filas.append((r["fecha"], r["ean_o_id"], r["clase_codigo"],
-                             r["comercio"], float(r["precio"]), r["region"]))
-                if tiene_nombre and r.get("nombre_producto"):
-                    nombres.append((r["ean_o_id"], r["nombre_producto"]))
-
-        con.executemany(
-            """INSERT OR IGNORE INTO precios_raw
-               (fecha, ean_o_id, clase_codigo, comercio, precio, region)
-               VALUES (?, ?, ?, ?, ?, ?)""", filas)
-
-        if nombres:
-            con.executemany(
-                """INSERT INTO productos (ean_o_id, nombre_producto, actualizado_en)
-                   VALUES (?, ?, datetime('now'))
-                   ON CONFLICT(ean_o_id) DO UPDATE SET
-                       nombre_producto = excluded.nombre_producto,
-                       actualizado_en = excluded.actualizado_en""",
-                nombres,
-            )
-            total_nombres += len(nombres)
-
+        n_filas, n_nombres, tiene_nombre = cargar_archivo_historico(con, archivo)
+        total_nombres += n_nombres
         con.commit()
-        total += len(filas)
+        total += n_filas
         if verboso:
             extra = "" if tiene_nombre else "  (respaldo viejo, sin nombres — ver aviso al final)"
-            print(f"  {archivo.name}  {len(filas):>8,} filas{extra}")
+            print(f"  {archivo.name}  {n_filas:>8,} filas{extra}")
     con.close()
     if verboso:
         print(f"\nListo: {total:,} filas reconstruidas en {DB_PATH}")

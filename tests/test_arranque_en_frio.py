@@ -1,4 +1,9 @@
 """
+NOTA: desde la carga bajo demanda (storage/carga_bajo_demanda.py) la app ya no
+reconstruye todo en _con(); este test conserva el camino viejo de
+scripts/reconstruir.py (que sigue existiendo y se usa por consola). La lógica
+nueva de la app se prueba en tests/test_carga_bajo_demanda.py.
+
 Test de integración del arranque en frío de app_streamlit.py — reproduce
 el bug real: `_rango_disponible()` tenía un atajo
 `if not DB_PATH.exists(): return None, None, 0` ANTES de darle a `_con()`

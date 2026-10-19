@@ -39,7 +39,6 @@ import streamlit as st
 from config.canasta import Cobertura, clases_de_grupo, grupos_de_division
 from engine.consultas import (
     actualizar_override,
-    hace_falta_reconstruir,
     nivel_general_desde_divisiones,
     resumen_divisiones_desde_valores,
     valores_medidos_nacional,
@@ -47,6 +46,10 @@ from engine.consultas import (
     variacion_de_grupo,
 )
 from engine.fechas import acotar_rango, calcular_preset, hace_falta_confirmar
+from storage.carga_bajo_demanda import (
+    asegurar_dias_cargados, dias_disponibles, fechas_necesarias, rango_disponible,
+    rangos_de_la_seleccion,
+)
 from storage.db import conectar
 
 # ANCLADAS A LA UBICACION DE ESTE ARCHIVO, no al directorio de trabajo del
@@ -69,76 +72,34 @@ st.set_page_config(page_title="Relevamiento de Precios", layout="wide")
 
 @st.cache_resource
 def _con():
-    # `@st.cache_resource` garantiza que el CUERPO de esta funcion se
-    # ejecuta como maximo una vez por proceso, incluso con sesiones
-    # concurrentes — asi la reconstruccion desde historico/ nunca corre
-    # dos veces en paralelo (lo que causaba "database is locked").
+    # CARGA BAJO DEMANDA (cambio de diseño): esta funcion YA NO reconstruye
+    # la base con todos los dias de historico/. Solo abre (o crea vacia) la
+    # base local. Los dias se cargan mas abajo, DESPUES de que se confirman
+    # las fechas a calcular, y solo los que esas fechas necesitan (ver
+    # storage/carga_bajo_demanda.py). Asi, arrancar de cero en Streamlit
+    # Cloud es instantaneo y el costo crece con el rango pedido, no con toda
+    # la historia acumulada.
     #
-    # REGLA IMPORTANTE, causante de un bug real: esta funcion NUNCA debe
-    # llamar a st.error/st.warning/st.stop() DENTRO DE SI MISMA. Una
-    # version anterior lo hacia (para avisar si la reconstruccion
-    # fallaba), y el resultado fue que Streamlit podia cachear ese estado
-    # de "fallo" como si fuera el resultado normal de la funcion — la
-    # proxima vez que se llamaba _con(), en vez de reintentar, devolvia
-    # directamente ese estado congelado. El sintoma era indistinguible de
-    # "nunca hubo datos": siempre el mismo mensaje, sin importar cuantas
-    # veces se reintentara. La correccion: esta funcion SOLO conecta y
-    # reconstruye: si algo falla, deja que la excepcion se propague hacia
-    # afuera sin atraparla aca. Quien la llama (mas abajo, FUERA de
-    # cualquier cache) es responsable de mostrar el error.
-    #
-    # PERO ESO TIENE OTRA CONSECUENCIA IMPORTANTE, que causo un bug real
-    # distinto: el chequeo `if not DB_PATH.exists()` solo reconstruye la
-    # PRIMERA vez que el proceso arranca. Streamlit Cloud NO reinicia el
-    # proceso en cada `git push` — el codigo se actualiza, pero si el
-    # proceso de Python ya estaba corriendo, la base vieja sigue en el
-    # disco del servidor y esta funcion nunca vuelve a mirar `historico/`
-    # de nuevo, sin importar cuantos dias nuevos se hayan subido.
-    #
-    # LA CORRECCION: comparar cuantos dias hay en la base contra cuantos
-    # archivos hay en historico/ (ver hace_falta_reconstruir). Si
-    # historico/ tiene MAS dias que la base, quiere decir que se subieron
-    # datos nuevos despues de que este proceso arranco.
-    historico = CARPETA_HISTORICO
-    respaldos = sorted(historico.glob("*.csv.gz")) if historico.exists() else []
-
-    dias_en_base = 0
-    if DB_PATH.exists():
-        con_provisoria = conectar(DB_PATH)
-        dias_en_base = con_provisoria.execute(
-            "SELECT COUNT(DISTINCT fecha) FROM precios_raw").fetchone()[0]
-        con_provisoria.close()
-
-    if hace_falta_reconstruir(DB_PATH.exists(), dias_en_base, len(respaldos)):
-        with st.spinner(
-            f"Preparando los datos ({len(respaldos)} días acumulados)... "
-            "esto puede tardar un momento la primera vez que se abre la app "
-            "después de un rato de inactividad. No hace falta hacer nada, "
-            "solo esperar."
-        ):
-            from scripts.reconstruir import reconstruir
-            reconstruir()  # si falla, la excepcion se propaga tal cual — no se atrapa aca
-
+    # REGLA que se mantiene: esta funcion NUNCA llama a st.error/st.stop()
+    # adentro (un fallo quedaba cacheado como si fuera el resultado normal).
+    # Si algo falla, la excepcion se propaga y la maneja el codigo de abajo.
     return conectar(DB_PATH)
+
+
+@st.cache_resource
+def _candado_de_carga():
+    # Evita que dos sesiones carguen dias a la vez sobre la misma conexion
+    # compartida (causaba "database is locked").
+    import threading
+    return threading.Lock()
 
 
 @st.cache_data(ttl=300)
 def _rango_disponible():
-    # BUG REAL QUE ESTO CORRIGE: esta funcion tenia un atajo
-    # `if not DB_PATH.exists(): return None, None, 0` ANTES de llamar a
-    # _con(). Eso es exactamente incorrecto en un arranque en frio real
-    # (Streamlit Cloud nunca tiene la base local hasta que _con() la
-    # reconstruye desde historico/): la funcion devolvia "no hay datos"
-    # de inmediato, sin darle a _con() la oportunidad de reconstruir nada.
-    # El sintoma era indistinguible de "nunca se cargo nada", aunque
-    # historico/ tuviera 22 dias bien subidos a GitHub.
-    #
-    # La correccion es simple: llamar a _con() SIEMPRE primero (es la unica
-    # funcion que sabe si hace falta reconstruir y lo hace si corresponde),
-    # y recien despues consultar la base que ella devuelve.
-    con = _con()
-    cur = con.execute("SELECT MIN(fecha), MAX(fecha), COUNT(DISTINCT fecha) FROM precios_raw")
-    return cur.fetchone()
+    # Sale de los NOMBRES de archivo de historico/ (2026-10-09.csv.gz): no
+    # abre ningun archivo ni arma la base, asi que es instantaneo. Muestra
+    # lo que hay SUBIDO a GitHub. "Actualizar datos" vuelve a leerlo.
+    return rango_disponible(CARPETA_HISTORICO)
 
 
 @st.cache_data(ttl=600)
@@ -237,7 +198,8 @@ if not fmin:
     )
     st.stop()
 
-st.info(f"Datos disponibles: **{fmin}** a **{fmax}** · {ndias} días cargados")
+st.info(f"Datos disponibles en GitHub: **{fmin}** a **{fmax}** · {ndias} días. "
+        "Elegí las fechas y tocá **Calcular**: se cargan solo los días que hagan falta.")
 
 # --------------------------------------------------------- estado: overrides
 if "overrides_clase" not in st.session_state:
@@ -457,6 +419,33 @@ if modo_simulacion:
         "cada persona que entra al link tiene su propia simulación, independiente de la de "
         "cualquier otra."
     )
+
+# ---------------------------------------------------------------- carga bajo demanda
+# Solo se llega aca DESPUES de confirmar las fechas (antes hay un st.stop()).
+# Se cargan a la base los dias de esos dos periodos que todavia no estan.
+_necesarias = fechas_necesarias(dias_disponibles(CARPETA_HISTORICO),
+                                rangos_de_la_seleccion(D1, H1, D0, H0))
+try:
+    with _candado_de_carga():
+        _faltan = _necesarias  # asegurar_dias_cargados saltea los que ya estan
+        with st.spinner(f"Cargando los días necesarios ({len(_faltan)} días en el rango; "
+                        "los que ya estaban cargados se saltean)..."):
+            _res_carga = asegurar_dias_cargados(_con(), CARPETA_HISTORICO, _faltan)
+except sqlite3.OperationalError as exc:
+    st.error(f"**{exc}** — la base estaba ocupada un instante. Esperá unos segundos y "
+             "apretá **'🔄 Actualizar datos'**. No es un problema de tus datos.")
+    st.stop()
+if _res_carga["recargados"]:
+    # Un dia cambio de contenido: lo ya calculado con la version vieja no sirve.
+    st.cache_data.clear()
+    _rango_disponible()
+if _res_carga["cargados"] or _res_carga["recargados"]:
+    st.caption(f"Se cargaron {len(_res_carga['cargados'])} día(s) nuevo(s)"
+               + (f" y se actualizaron {len(_res_carga['recargados'])} que habían cambiado" if _res_carga["recargados"] else "")
+               + ".")
+if not _necesarias:
+    st.warning("No hay ningún día cargado dentro de las fechas elegidas.")
+    st.stop()
 
 # ---------------------------------------------------------------- calculo (rapido)
 valores = _valores_medidos_cacheado(_con(), D1, H1, D0, H0)
