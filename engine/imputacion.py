@@ -77,3 +77,67 @@ def resolver_relativo(
     return ResultadoImputacion(
         relativo_grupo_superior, MetodoImputacion.GRUPO_SUPERIOR_TOTAL, cobertura
     )
+
+
+# ==========================================================================
+# IMPUTACION A NIVEL DE PRECIO (Metodologia N°32, apartado 7.1) — version
+# que SI cambia el numero.
+#
+# Texto del apartado 7.1: los precios no relevados en el mes se completan
+# ANTES de calcular el precio promedio de la variedad, segun cuantos
+# precios validos haya respecto de los exigidos (el panel):
+#
+#   i.   > 50%  : cada precio faltante = su valor del mes anterior x la
+#                 variacion promedio de los negocios que SI informaron.
+#   ii.  20-50% : cada precio faltante = su valor del mes anterior x la
+#                 variacion promedio de las DEMAS variedades del
+#                 agrupamiento inmediato superior.
+#   iii. < 20%  : los precios relevados se descartan y TODOS los precios del
+#                 mes anterior se actualizan con la variacion promedio de las
+#                 demas variedades del agrupamiento superior.
+#
+# Como el precio de la variedad es una media GEOMETRICA de todos los precios
+# del panel (observados + imputados), el resultado numerico es:
+#
+#   i.   relativo = relativo propio (los faltantes imputados con la propia
+#                   variacion no mueven el promedio geometrico)
+#   ii.  relativo = propio^c x superior^(1-c)   (c = precios validos / exigidos)
+#   iii. relativo = superior
+#
+# Los relativos son cocientes (1.02 = +2%), no porcentajes.
+# ==========================================================================
+
+@dataclass
+class ResultadoRelativoVariedad:
+    relativo: float
+    metodo: MetodoImputacion
+    cobertura: float
+    uso_superior: bool   # False si hacia falta el superior pero no se pudo calcular
+
+
+def relativo_de_variedad(
+    n_precios_validos: int,
+    n_precios_exigidos: int,
+    relativo_propio: float,
+    relativo_superior: float | None,
+) -> ResultadoRelativoVariedad:
+    import math
+
+    if n_precios_exigidos <= 0:
+        raise ValueError("n_precios_exigidos debe ser positivo")
+    c = min(1.0, n_precios_validos / n_precios_exigidos)
+
+    if c > 0.5:
+        return ResultadoRelativoVariedad(relativo_propio, MetodoImputacion.PROPIO, c, True)
+
+    if c >= 0.2:
+        metodo = MetodoImputacion.GRUPO_SUPERIOR_PARCIAL
+        if relativo_superior is None:
+            return ResultadoRelativoVariedad(relativo_propio, metodo, c, False)
+        rel = math.exp(c * math.log(relativo_propio) + (1 - c) * math.log(relativo_superior))
+        return ResultadoRelativoVariedad(rel, metodo, c, True)
+
+    metodo = MetodoImputacion.GRUPO_SUPERIOR_TOTAL
+    if relativo_superior is None:
+        return ResultadoRelativoVariedad(relativo_propio, metodo, c, False)
+    return ResultadoRelativoVariedad(relativo_superior, metodo, c, True)

@@ -331,6 +331,55 @@ def precios_por_producto_en_multiples_rangos(
     return resultado
 
 
+def precios_por_negocio_en_rango(
+    con: sqlite3.Connection, clase_codigo: str, desde: str, hasta: str,
+    region: str | None = None
+) -> dict[str, dict[tuple, list[float]]]:
+    """Como `precios_por_producto_en_rango`, pero conservando el NEGOCIO.
+
+    Devuelve {ean_o_id: {(comercio, region): [precios de cada dia]}}.
+
+    POR QUE: la Metodologia N°32 (apartado 5.1) calcula primero, para cada
+    articulo-negocio, la media ARITMETICA de los precios positivos
+    observados en el mes (formula 6), y recien despues combina negocios con
+    media GEOMETRICA (formula 7). Para poder hacer eso hay que saber a que
+    negocio pertenece cada precio. En SEPA un "negocio" es la cadena
+    (comercio) dentro de una region: la ingesta ya colapsa las sucursales de
+    una misma cadena en un precio diario (ver collectors/sepa/ingesta.py)."""
+    if region:
+        cur = con.execute(
+            """SELECT ean_o_id, comercio, region, precio FROM precios_raw
+               WHERE clase_codigo = ? AND fecha >= ? AND fecha <= ? AND region = ?""",
+            (clase_codigo, desde, hasta, region),
+        )
+    else:
+        cur = con.execute(
+            """SELECT ean_o_id, comercio, region, precio FROM precios_raw
+               WHERE clase_codigo = ? AND fecha >= ? AND fecha <= ?""",
+            (clase_codigo, desde, hasta),
+        )
+    resultado: dict[str, dict[tuple, list[float]]] = {}
+    for ean_o_id, comercio, reg, precio in cur.fetchall():
+        resultado.setdefault(ean_o_id, {}).setdefault((comercio, reg), []).append(precio)
+    return resultado
+
+
+def precios_por_negocio_en_multiples_rangos(
+    con: sqlite3.Connection, clase_codigo: str, bloques: list[tuple[str, str]],
+    region: str | None = None,
+) -> dict[str, dict[tuple, list[float]]]:
+    """Version de `precios_por_negocio_en_rango` para varios tramos de
+    fechas: se juntan TODAS las observaciones de todos los tramos antes de
+    promediar (mismo criterio que `precios_por_producto_en_multiples_rangos`)."""
+    resultado: dict[str, dict[tuple, list[float]]] = {}
+    for desde, hasta in bloques:
+        parcial = precios_por_negocio_en_rango(con, clase_codigo, desde, hasta, region)
+        for ean, por_negocio in parcial.items():
+            for clave, precios in por_negocio.items():
+                resultado.setdefault(ean, {}).setdefault(clave, []).extend(precios)
+    return resultado
+
+
 def valores_diarios_de_clase(
     con: sqlite3.Connection, clase_codigo: str, mes: str
 ) -> list[tuple[str, float]]:

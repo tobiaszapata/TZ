@@ -42,6 +42,7 @@ from engine.consultas import (
     nivel_general_desde_divisiones,
     resumen_divisiones_desde_valores,
     valores_medidos_nacional,
+    variacion_clase_nacional_sin_productos,
     variacion_clase,
     variacion_de_grupo,
 )
@@ -119,6 +120,11 @@ def _valores_medidos_cacheado(_con_obj, D1, H1, D0, H0):
 @st.cache_data(ttl=600)
 def _productos_de_clase_cacheado(_con_obj, cod, D1, H1, D0, H0):
     return variacion_clase(_con_obj, cod, D1, H1, D0, H0, region=None)
+
+
+@st.cache_data(ttl=600)
+def _sin_productos_cacheado(_con_obj, cod, D1, H1, D0, H0, excluir):
+    return variacion_clase_nacional_sin_productos(_con_obj, cod, D1, H1, D0, H0, excluir)
 
 
 def _color(v):
@@ -801,6 +807,52 @@ for d in divs_detalle:
                         "barras) — sirve para verificar contra la fuente original si un valor "
                         "llama la atención."
                     )
+
+                    # ---- Excluir productos para ver "como seria sin ellos"
+                    propios = [p for p in drivers if not p.es_imputado]
+                    por_ean = {p.ean_o_id: p for p in propios}
+                    excluidos = st.multiselect(
+                        "Excluir productos del cálculo (para ver cómo quedaría la "
+                        "subcategoría sin ellos)",
+                        options=list(por_ean),
+                        format_func=lambda e: f"{por_ean[e].nombre_producto} · {e} · "
+                                              f"{por_ean[e].variacion_pct:+.1f}%",
+                        key=f"excl_{cod}",
+                        help="Elegí uno o más productos (podés escribir para buscar). Se "
+                             "sacan en todas las regiones y se recalcula la subcategoría "
+                             "con el mismo método. No modifica los datos guardados.",
+                    )
+                    if excluidos:
+                        base_v = valores.get(cod)
+                        nuevo_v = _sin_productos_cacheado(_con(), cod, D1, H1, D0, H0,
+                                                          tuple(sorted(excluidos)))
+                        if nuevo_v is None:
+                            st.warning("Sin esos productos no queda ninguno comparable "
+                                       "en la subcategoría.")
+                        elif base_v is not None:
+                            valores2 = dict(valores)
+                            valores2[cod] = nuevo_v
+                            divs2 = resumen_divisiones_desde_valores(valores2, overrides_clase=ov_clase)
+                            r2 = nivel_general_desde_divisiones(divs2, overrides_division=ov_division)
+                            div2 = next((x for x in divs2 if x.codigo == d.codigo), None)
+                            st.success(
+                                f"**{cod}**: {base_v:+.2f}% con todos los productos → "
+                                f"**{nuevo_v:+.2f}%** sin "
+                                f"{'el producto excluido' if len(excluidos) == 1 else f'los {len(excluidos)} productos excluidos'} "
+                                f"({nuevo_v - base_v:+.2f} pp)."
+                            )
+                            partes = []
+                            if div2 is not None and d.variacion_pct is not None \
+                                    and div2.variacion_pct is not None:
+                                partes.append(f"División {d.codigo}: {d.variacion_pct:+.2f}% → "
+                                              f"{div2.variacion_pct:+.2f}%")
+                            if r.variacion_pct is not None and r2.variacion_pct is not None:
+                                partes.append(f"Nivel general: {r.variacion_pct:+.2f}% → "
+                                              f"{r2.variacion_pct:+.2f}%")
+                            if partes:
+                                st.caption("Efecto en el resto del cálculo: " + " · ".join(partes) + ". "
+                                           "Para llevar este valor al cálculo general, activá el modo "
+                                           "simulación y cargalo como valor manual en esta subcategoría.")
                 else:
                     st.caption("Sin productos comparables entre los dos períodos elegidos.")
 

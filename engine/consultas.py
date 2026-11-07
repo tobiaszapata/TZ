@@ -45,9 +45,11 @@ from config.canasta import (
     divisiones,
 )
 from engine.agregacion import laspeyres
-from engine.reporte import calcular_clase_y_productos
+from engine.reporte import calcular_clase_y_productos, calcular_clase_y_productos_indec
 from storage.db import (
     nombres_de_productos,
+    precios_por_negocio_en_multiples_rangos,
+    precios_por_negocio_en_rango,
     precios_por_producto_en_multiples_rangos,
     precios_por_producto_en_rango,
 )
@@ -75,7 +77,16 @@ class ResultadoDivision:
     tiene_manuales: bool = False
 
 
-def variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region=None):
+def _es_multibloque(x) -> bool:
+    return isinstance(x, (list, tuple)) and bool(x) and isinstance(x[0], (list, tuple))
+
+
+def _sin(panel: dict, excluir) -> dict:
+    return {e: v for e, v in panel.items() if e not in excluir} if excluir else panel
+
+
+def variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region=None,
+                    metodo="indec", variacion_grupo_superior=None, excluir_eans=None):
     """Variacion de una clase entre dos ventanas de fechas, con el detalle
     por producto. Devuelve (resultado, drivers) o (None, []) si no hay
     productos comparables. Esto SIEMPRE lee de la base — los overrides se
@@ -85,25 +96,118 @@ def variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region=Non
       - un string de fecha ('YYYY-MM-DD'): rango continuo simple (caso de
         siempre).
       - una LISTA de tuplas (desde, hasta): varios tramos de fechas, para
-        poder saltar dias sueltos en el medio (tipico: comparar solo dias
-        habiles dentro de un mes, saltando los fines de semana). Ver
-        storage.db.precios_por_producto_en_multiples_rangos — TODAS las
-        observaciones de TODOS los tramos se juntan antes de calcular la
-        media geometrica, nunca se promedia "el promedio de cada tramo"
-        (eso le daria el mismo peso a un tramo de 5 dias que a uno de 1
-        dia suelto, lo cual esta mal)."""
-    if isinstance(desde, (list, tuple)) and desde and isinstance(desde[0], (list, tuple)):
-        p_act = precios_por_producto_en_multiples_rangos(con, clase, desde, region)
+        poder saltar dias sueltos en el medio. TODAS las observaciones de
+        TODOS los tramos se juntan antes de promediar.
+
+    `metodo`:
+      - "indec" (por defecto): Metodologia N°32 apartados 5.1 y 7.1 — ver
+        engine.reporte.calcular_clase_y_productos_indec.
+      - "previo": el calculo anterior (media geometrica por producto y
+        promedio ARITMETICO ponderado entre productos). Se conserva solo
+        para comparar (scripts/comparar_metodo.py).
+
+    `variacion_grupo_superior` (en %): variacion de las DEMAS clases del
+    mismo grupo, usada por la imputacion del apartado 7.1 cuando la
+    cobertura de la clase es baja (solo metodo "indec").
+
+    `excluir_eans`: conjunto de productos (ean_o_id) a dejar afuera del
+    calculo, para ver como seria la variacion de la clase sin ellos."""
+    excluir_eans = frozenset(excluir_eans or ())
+    if metodo == "previo":
+        if _es_multibloque(desde):
+            p_act = precios_por_producto_en_multiples_rangos(con, clase, desde, region)
+        else:
+            p_act = precios_por_producto_en_rango(con, clase, desde, hasta, region)
+        if _es_multibloque(desde_base):
+            p_base = precios_por_producto_en_multiples_rangos(con, clase, desde_base, region)
+        else:
+            p_base = precios_por_producto_en_rango(con, clase, desde_base, hasta_base, region)
+        p_act, p_base = _sin(p_act, excluir_eans), _sin(p_base, excluir_eans)
+        eans = list(set(p_act) | set(p_base))
+        if not eans:
+            return None, []
+        return calcular_clase_y_productos(p_act, p_base, nombres_de_productos(con, eans))
+
+    if metodo != "indec":
+        raise ValueError(f"metodo desconocido: {metodo!r}")
+    if _es_multibloque(desde):
+        n_act = precios_por_negocio_en_multiples_rangos(con, clase, desde, region)
     else:
-        p_act = precios_por_producto_en_rango(con, clase, desde, hasta, region)
-    if isinstance(desde_base, (list, tuple)) and desde_base and isinstance(desde_base[0], (list, tuple)):
-        p_base = precios_por_producto_en_multiples_rangos(con, clase, desde_base, region)
+        n_act = precios_por_negocio_en_rango(con, clase, desde, hasta, region)
+    if _es_multibloque(desde_base):
+        n_base = precios_por_negocio_en_multiples_rangos(con, clase, desde_base, region)
     else:
-        p_base = precios_por_producto_en_rango(con, clase, desde_base, hasta_base, region)
-    eans = list(set(p_act) | set(p_base))
+        n_base = precios_por_negocio_en_rango(con, clase, desde_base, hasta_base, region)
+    n_act, n_base = _sin(n_act, excluir_eans), _sin(n_base, excluir_eans)
+    eans = list(set(n_act) | set(n_base))
     if not eans:
         return None, []
-    return calcular_clase_y_productos(p_act, p_base, nombres_de_productos(con, eans))
+    return calcular_clase_y_productos_indec(
+        n_act, n_base, nombres_de_productos(con, eans), variacion_grupo_superior)
+
+
+def variacion_superior(clase_codigo: str, variaciones: dict[str, float], region: str) -> float | None:
+    """Variacion del agrupamiento inmediato superior a la clase, EXCLUYENDO
+    a la propia clase ("las demas variedades del agrupamiento superior",
+    Metodologia N°32 apartado 7.1): promedio ponderado (pesos oficiales de
+    la region) de las demas clases medidas del mismo grupo; si no hay
+    ninguna, de la misma division. None si no hay con que calcularlo."""
+    for prefijo in (clase_codigo.rsplit(".", 1)[0] + ".", clase_codigo.split(".")[0] + "."):
+        otros = [c for c in variaciones
+                 if c != clase_codigo and c.startswith(prefijo)]
+        pesos = {c: CANASTA[c].peso(region) for c in otros}
+        total = sum(pesos.values())
+        if otros and total > 0:
+            return sum(pesos[c] * variaciones[c] for c in otros) / total
+    return None
+
+
+def variacion_clase_nacional_sin_productos(con, clase, desde, hasta, desde_base, hasta_base,
+                                           excluir) -> float | None:
+    """Variacion NACIONAL de una clase dejando afuera los productos
+    `excluir` (en todas las regiones), con el mismo calculo y la misma
+    imputacion (7.1) que el numero normal de la clase."""
+    excluir = frozenset(excluir)
+    por_region: dict[str, float] = {}
+    for region in PESO_REGION:
+        res, _ = variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region,
+                                 excluir_eans=excluir)
+        if res is None:
+            continue
+        if res.cobertura <= 0.5:
+            otras = variaciones_de_region(con, desde, hasta, desde_base, hasta_base, region)
+            otras.pop(clase, None)
+            sup = variacion_superior(clase, {c: r.variacion_pct for c, r in otras.items()}, region)
+            if sup is not None:
+                res2, _ = variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region,
+                                          variacion_grupo_superior=sup, excluir_eans=excluir)
+                res = res2 or res
+        por_region[region] = res.variacion_pct
+    return _combinar_regiones(por_region, PESO_REGION)[0]
+
+
+def variaciones_de_region(con, desde, hasta, desde_base, hasta_base, region, metodo="indec"):
+    """{clase: (VariacionClase)} de TODAS las clases medidas en una region,
+    aplicando la imputacion de 7.1 con la variacion de las demas clases del
+    grupo cuando una clase tiene cobertura <= 50%."""
+    resultados = {}
+    for cod in CLASES_CON_COBERTURA_SEPA:
+        res, _ = variacion_clase(con, cod, desde, hasta, desde_base, hasta_base, region,
+                                 metodo=metodo)
+        if res is not None:
+            resultados[cod] = res
+    if metodo != "indec":
+        return resultados
+    propias = {c: r.variacion_pct for c, r in resultados.items()}
+    for cod, r in list(resultados.items()):
+        if r.cobertura <= 0.5:
+            sup = variacion_superior(cod, propias, region)
+            if sup is not None:
+                nuevo, _ = variacion_clase(con, cod, desde, hasta, desde_base, hasta_base,
+                                           region, metodo=metodo, variacion_grupo_superior=sup)
+                if nuevo is not None:
+                    resultados[cod] = nuevo
+    return resultados
 
 
 def division_completa(con, div_codigo, desde, hasta, desde_base, hasta_base,
@@ -346,7 +450,8 @@ def _combinar_regiones(valores: dict[str, float], pesos: dict[str, float]) -> tu
     return (num / den if den else None), (den / peso_total if peso_total else 0.0)
 
 
-def variacion_clase_nacional(con, clase: str, desde, hasta, desde_base, hasta_base):
+def variacion_clase_nacional(con, clase: str, desde, hasta, desde_base, hasta_base,
+                             metodo="indec"):
     """Variacion NACIONAL de una clase: la misma clase, calculada en cada
     una de las 6 regiones (con sus propios precios y su propio peso dentro
     de la region) y combinada con la importancia relativa de cada region.
@@ -357,7 +462,8 @@ def variacion_clase_nacional(con, clase: str, desde, hasta, desde_base, hasta_ba
     gente)."""
     valores = {}
     for region in PESO_REGION:
-        res, _ = variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region)
+        res, _ = variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region,
+                                 metodo=metodo)
         if res is not None:
             valores[region] = res.variacion_pct
     return _combinar_regiones(valores, PESO_REGION)
@@ -498,13 +604,23 @@ def nivel_general_nacional(con, desde, hasta, desde_base, hasta_base,
 # cada interaccion sin costo.
 # ==========================================================================
 
-def valores_medidos_nacional(con, desde, hasta, desde_base, hasta_base) -> dict[str, float]:
+def valores_medidos_nacional(con, desde, hasta, desde_base, hasta_base,
+                            metodo="indec") -> dict[str, float]:
     """La parte CARA: la variacion nacional de cada subcategoria medida por
     SEPA (combinando las 6 regiones). No conoce overrides — es el dato tal
-    cual lo releva el sistema. Se calcula una vez por rango de fechas."""
+    cual lo releva el sistema. Se calcula una vez por rango de fechas.
+
+    Con metodo "indec" aplica la imputacion del apartado 7.1: en cada region,
+    una clase con cobertura <= 50% usa (total o parcialmente) la variacion
+    de las demas clases de su grupo."""
+    por_clase: dict[str, dict[str, float]] = {c: {} for c in CLASES_CON_COBERTURA_SEPA}
+    for region in PESO_REGION:
+        for cod, r in variaciones_de_region(con, desde, hasta, desde_base, hasta_base,
+                                            region, metodo).items():
+            por_clase[cod][region] = r.variacion_pct
     valores: dict[str, float] = {}
-    for codigo in CLASES_CON_COBERTURA_SEPA:
-        v, _cobertura = variacion_clase_nacional(con, codigo, desde, hasta, desde_base, hasta_base)
+    for codigo, por_region in por_clase.items():
+        v, _cobertura = _combinar_regiones(por_region, PESO_REGION)
         if v is not None:
             valores[codigo] = v
     return valores

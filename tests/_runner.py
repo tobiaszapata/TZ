@@ -45,6 +45,7 @@ MODULOS = [
     "tests.test_reiniciar",
     "tests.test_quitar_dias",
     "tests.test_carga_bajo_demanda",
+    "tests.test_metodo_indec",
     "tests.test_deteccion_reconstruccion",
     "tests.test_confirmacion_fechas",
     "tests.test_nombre_producto_vacio",
