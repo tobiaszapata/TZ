@@ -1,0 +1,80 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><link rel="stylesheet" href="_estilo.css"></head><body>
+<h1>Puesta en marcha de Prepagas</h1><div class="sub">Clase 06.4.1 · cuadros tarifarios de la Superintendencia de Servicios de Salud</div>
+<div class="toc"><b>Contenido</b><ol><li>Qué se agregó y cómo funciona</li><li>Instalar la versión nueva sin perder datos</li><li>Verificar (tests y conexión al sitio)</li><li>Primera descarga (julio 2026 en adelante)</li><li>Ver el resultado antes de la app</li><li>Subir a GitHub y reiniciar la app</li><li>Usar el tilde en la app</li><li>Plan B: bajar desde el navegador</li><li>Corregir regiones dudosas</li><li>Problemas frecuentes</li></ol></div>
+
+<h2>1. Qué se agregó y cómo funciona</h2>
+<p>Se suma la clase <b>06.4.1 Prepagas y obras sociales</b>, calculada con los cuadros tarifarios que las entidades declaran cada mes en el sitio de la SSSalud. Los precios cambian <b>una vez por mes</b>, por eso esta clase se mide por mes y no por semana.</p>
+<table><tr><th>Tema</th><th>Cómo quedó</th></tr>
+<tr><td>Tilde en la app</td><td>«Incluir prepagas (se mide por mes)», <b>apagado por defecto</b>. Apagado: la semanal de Alimentos y todo lo demás da igual que antes. Prendido: se calcula 06.4.1 y entra en el mensual.</td></tr>
+<tr><td>Regiones</td><td>Se calcula en las 6 regiones INDEC y se combina con los ponderadores regionales de INDEC para el dato nacional.</td></tr>
+<tr><td>Historia</td><td>Solo desde <b>julio 2026</b> (el relevamiento no existía antes). Se cambia con <code>--desde</code>.</td></tr>
+<tr><td>Actualización</td><td>Va incluida en <code>actualizar</code>: baja meses nuevos y revisa los dos últimos por si cambiaron.</td></tr></table>
+<div class="warn"><b>Importante:</b> si las dos ventanas que comparás caen en el <b>mismo mes</b>, la variación de prepagas es 0% (no hubo cambio de cuota). Si cruzan de mes, entra el salto de cuota, ponderado por días.</div>
+
+<h2>2. Instalar la versión nueva sin perder datos</h2>
+<ol class="pasos">
+<li>Cerrá cualquier ventana donde esté corriendo la app o un script.</li>
+<li>Descomprimí el ZIP nuevo en una carpeta temporal (por ejemplo el Escritorio).</li>
+<li>Copiá el contenido de la carpeta nueva <code>relevamiento-precios</code> sobre la tuya, eligiendo «reemplazar». <b>No borres</b> tu carpeta: ahí están la base de datos (<code>.db</code>), <code>historico</code> y <code>datos_sepa</code>, que el ZIP no trae.</li>
+<li>Confirmá que sigue existiendo <code>historico\</code> con los .csv.gz.</li></ol>
+<pre>cd C:\Users\tobia\OneDrive\Desktop\JPM\IPC\relevamiento-precios
+dir historico | more
+dir externos\prepagas</pre>
+
+<h2>3. Verificar (tests y conexión al sitio)</h2>
+<ol class="pasos"><li>Correr los tests: deben dar <code>Total: 309 OK: 309 Fallidos: 0</code>.</li>
+<li>Probar que tu PC llega al sitio: <code>--listar</code> debe mostrar los períodos (202507 a 202611).</li></ol>
+<pre>python -m tests._runner
+python -m scripts.descargar_prepagas --listar</pre>
+<div class="info">El descargador se probó contra una API simulada; los datos reales se leyeron desde un navegador. Si <code>--listar</code> falla con error de acceso, andá directo al punto 8 (Plan B).</div>
+
+<h2>4. Primera descarga (julio 2026 en adelante)</h2>
+<p>Cada mes tiene ~12 mil filas y se baja entidad por entidad (puede tardar varios minutos por mes). Si un mes queda incompleto <b>no se guarda</b>: nunca queda un archivo a medias.</p>
+<pre>python -m scripts.descargar_prepagas --faltantes</pre>
+<p>Equivale a bajar todo lo que falta desde 202607. Alternativa explícita:</p>
+<pre>python -m scripts.descargar_prepagas --periodos 202607 202608 202609 202610 202611</pre>
+<div class="warn"><b>Noviembre 2026 está incompleto:</b> al 7/11 tenía 7.748 filas contra 11.801 de octubre, porque las entidades siguen cargando. Una comparación noviembre vs. octubre usa solo los planes presentes en ambos y puede mostrar <b>cobertura baja</b>. Se completa durante el mes; por eso la rutina semanal revisa los últimos dos meses.</div>
+
+<h2>5. Ver el resultado antes de la app</h2>
+<pre>python -m scripts.consultar_prepagas --mes 202610 --base 202609</pre>
+<p>Imprime la variación por región (con cobertura, planes comparables / nuevos / perdidos), el nacional, las 10 entidades que más inciden y cuántas cápitas caen en regiones «dudosas». Revisá que el nacional sea razonable (varios % mensuales en este rubro es normal).</p>
+
+<h2>6. Subir a GitHub y reiniciar la app</h2>
+<ol class="pasos"><li>Subí los archivos mensuales y el código.</li><li>En Streamlit Cloud: menú de la app → <b>Reboot app</b>.</li></ol>
+<pre>git add externos/
+git add .
+git commit -m "Prepagas: cuadros tarifarios SSSalud"
+git push</pre>
+
+<h2>7. Usar el tilde en la app</h2>
+<ol class="pasos"><li>Barra lateral: tildá <b>«Incluir prepagas (se mide por mes)»</b>.</li><li>La app carga solo los meses que necesita y avisa si falta alguno.</li><li>En la tabla de divisiones, 06.4.1 aparece con su variación. Con el tilde apagado figura como «no relevado por SEPA» y no afecta nada.</li><li>Para ver qué entidad empuja el número, abrí el detalle: las entidades se muestran como «productos» y se pueden excluir.</li></ol>
+
+<h2>8. Plan B: bajar desde el navegador</h2>
+<p>Si el sitio rechaza al script de Python:</p>
+<ol class="pasos"><li>Abrí <code>https://cuadrostarifarios.sssalud.gob.ar</code> en Chrome.</li><li>F12 → pestaña Consola.</li><li>Abrí <code>scripts\prepagas_navegador.js</code>, cambiá la línea <code>const PERIODO = 202610;</code> por el mes que querés, copiá todo, pegalo en la consola (si Chrome lo pide, escribí <code>allow pasting</code> y Enter) y esperá unos minutos. Se descarga <code>AAAAMM.csv</code> en Descargas. Repetí por cada mes.</li><li>Importalo.</li></ol>
+<pre>python -m scripts.descargar_prepagas --desde-csv C:\Users\tobia\Downloads\202610.csv</pre>
+
+<h2>9. Corregir regiones dudosas</h2>
+<p>Los textos ambiguos («GENERAL», «Resto», «Interior», «ZONA CENTRO», «NO IDENTIFICADA») se resuelven con una regla razonable pero figuran como <i>dudosa</i> en <code>consultar_prepagas</code>. Para corregir uno, editá <code>externos\prepagas\regiones.csv</code> (separador <code>;</code>, regiones separadas por coma):</p>
+<pre>region_texto;regiones
+GENERAL;GBA,Pampeana,Noreste,Noroeste,Cuyo,Patagonia
+ZONA CENTRO;Pampeana</pre>
+<p>Regiones válidas: GBA, Pampeana, Noreste, Noroeste, Cuyo, Patagonia. Después volvé a correr <code>consultar_prepagas</code>.</p>
+
+<h2>10. Problemas frecuentes</h2>
+<table><tr><th>Síntoma</th><th>Causa / solución</th></tr>
+<tr><td>«Mes incompleto, no se guardó»</td><td>El sitio cortó a mitad de descarga. Repetí el comando; es seguro.</td></tr>
+<tr><td>Gateway Timeout</td><td>Bajá los hilos: <code>--hilos 2</code>.</td></tr>
+<tr><td>06.4.1 en 0%</td><td>Las dos ventanas caen en el mismo mes. Es lo esperado.</td></tr>
+<tr><td>Cobertura baja en el mes en curso</td><td>Mes incompleto; esperar y actualizar semanalmente.</td></tr>
+<tr><td>La app no muestra el mes nuevo</td><td>Falta subir <code>externos\</code> a GitHub y hacer Reboot.</td></tr></table>
+
+<h2>Comandos (en orden)</h2>
+<pre>python -m tests._runner
+python -m scripts.descargar_prepagas --listar
+python -m scripts.descargar_prepagas --faltantes
+python -m scripts.consultar_prepagas --mes 202610 --base 202609
+git add .
+git commit -m "Prepagas: cuadros tarifarios SSSalud"
+git push</pre>
+</body></html>

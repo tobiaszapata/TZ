@@ -46,6 +46,7 @@ class Cobertura(str, Enum):
     PENDIENTE = "pendiente"
     NO_SCRAPEABLE = "no_scrapeable"
     EXCLUIDA = "excluida"          # existe, pero se decidio no medirla
+    MEDIDA_EXTERNA = "medida_externa"  # se mide con otra fuente que SEPA (ej. prepagas: SSSalud)
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,11 @@ ITEMS = [
     Item("06.2.2", "Servicios y tratamientos odontológicos", "clase", '06.2', {"GBA": 0.0046, "Pampeana": 0.0048, "Noreste": 0.005, "Noroeste": 0.0057, "Cuyo": 0.0024, "Patagonia": 0.0049}, Cobertura.PENDIENTE),
     Item("06.2.3", "Servicios auxiliares para pacientes externos", "clase", '06.2', {"GBA": 0.0014, "Pampeana": 0.0028, "Noreste": 0.0019, "Noroeste": 0.0021, "Cuyo": 0.0027, "Patagonia": 0.0023}, Cobertura.PENDIENTE),
     Item("06.4", "Gastos de prepagas y obras sociales", "grupo", '06', {"GBA": 0.0318, "Pampeana": 0.0179, "Noreste": 0.007, "Noroeste": 0.0075, "Cuyo": 0.01, "Patagonia": 0.0082}, Cobertura.PENDIENTE),
+    # 06.4.1: clase "espejo" del grupo 06.4. INDEC no publica clases dentro de
+    # este grupo (ver ponderadores_ipc.xls), asi que la unica clase tiene el
+    # MISMO peso que el grupo. Se mide con los cuadros tarifarios de las
+    # prepagas (SSSalud), no con SEPA: ver engine/prepagas.py.
+    Item("06.4.1", "Prepagas y obras sociales (cuadros tarifarios SSSalud)", "clase", '06.4', {"GBA": 0.0318, "Pampeana": 0.0179, "Noreste": 0.007, "Noroeste": 0.0075, "Cuyo": 0.01, "Patagonia": 0.0082}, Cobertura.MEDIDA_EXTERNA),
     Item("07", "Transporte", "division", None, {"GBA": 0.1159, "Pampeana": 0.1041, "Noreste": 0.0963, "Noroeste": 0.0841, "Cuyo": 0.121, "Patagonia": 0.1342}, Cobertura.PENDIENTE),
     Item("07.1", "Adquisición de vehículos", "grupo", '07', {"GBA": 0.0248, "Pampeana": 0.0289, "Noreste": 0.0276, "Noroeste": 0.0158, "Cuyo": 0.0295, "Patagonia": 0.0492}, Cobertura.PENDIENTE),
     Item("07.1.1", "Vehículos a motor", "clase", '07.1', {"GBA": 0.0245, "Pampeana": 0.0271, "Noreste": 0.0235, "Noroeste": 0.0135, "Cuyo": 0.0284, "Patagonia": 0.0477}, Cobertura.PENDIENTE),
@@ -238,6 +244,17 @@ CLASES_CON_COBERTURA_SEPA = [it.codigo for it in ITEMS
                               if it.nivel == "clase" and it.cobertura == Cobertura.MEDIDA_SEPA]
 CLASES_SIN_COBERTURA_SEPA = [it.codigo for it in ITEMS
                               if it.nivel == "clase" and it.cobertura != Cobertura.MEDIDA_SEPA]
+
+# Clases que se miden con una fuente que NO es SEPA (hoy: prepagas).
+CLASES_EXTERNAS = [it.codigo for it in ITEMS
+                   if it.nivel == "clase" and it.cobertura == Cobertura.MEDIDA_EXTERNA]
+# Todas las clases con dato propio (SEPA + externas): lo que el motor calcula.
+CLASES_MEDIDAS = CLASES_CON_COBERTURA_SEPA + CLASES_EXTERNAS
+
+
+def es_medida(item: "Item") -> bool:
+    """True si el sistema mide esta clase (con SEPA o con una fuente externa)."""
+    return item.cobertura in (Cobertura.MEDIDA_SEPA, Cobertura.MEDIDA_EXTERNA)
 
 
 # --- API de compatibilidad -----------------------------------------------

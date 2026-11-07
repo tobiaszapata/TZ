@@ -51,7 +51,9 @@ from storage.carga_bajo_demanda import (
     asegurar_dias_cargados, dias_disponibles, fechas_necesarias, rango_disponible,
     rangos_de_la_seleccion,
 )
+from engine.prepagas import periodos_de_la_seleccion
 from storage.db import conectar
+from storage.prepagas import asegurar_periodos_cargados
 
 # ANCLADAS A LA UBICACION DE ESTE ARCHIVO, no al directorio de trabajo del
 # proceso. Antes eran rutas relativas (Path("relevamiento_precios.db"),
@@ -67,6 +69,7 @@ from storage.db import conectar
 RAIZ = Path(__file__).resolve().parent
 DB_PATH = RAIZ / "relevamiento_precios.db"
 CARPETA_HISTORICO = RAIZ / "historico"
+CARPETA_PREPAGAS = RAIZ / "externos" / "prepagas"   # cuadros tarifarios (SSSalud), un archivo por mes
 
 st.set_page_config(page_title="Relevamiento de Precios", layout="wide")
 
@@ -104,7 +107,7 @@ def _rango_disponible():
 
 
 @st.cache_data(ttl=600)
-def _valores_medidos_cacheado(_con_obj, D1, H1, D0, H0):
+def _valores_medidos_cacheado(_con_obj, D1, H1, D0, H0, incluir_prepagas=False):
     # El prefijo "_" en `_con_obj` le dice a Streamlit que NO incluya este
     # argumento en la clave de cache (no se puede "hashear" una conexion
     # de base de datos, y tampoco hace falta: si el rango de fechas es el
@@ -114,7 +117,7 @@ def _valores_medidos_cacheado(_con_obj, D1, H1, D0, H0):
     # regiones). Como los overrides NO son parametros de esta funcion, se
     # sigue usando el mismo resultado cacheado sin importar cuantas veces
     # se edite un valor manual en modo simulacion.
-    return valores_medidos_nacional(_con_obj, D1, H1, D0, H0)
+    return valores_medidos_nacional(_con_obj, D1, H1, D0, H0, incluir_externas=incluir_prepagas)
 
 
 @st.cache_data(ttl=600)
@@ -345,6 +348,20 @@ with st.sidebar:
         d0 = st.date_input("desde ", d0, min_value=d_min, max_value=d_max, key="d0")
         h0 = st.date_input("hasta ", h0, min_value=d_min, max_value=d_max, key="h0")
 
+    # Prepagas (clase 06.4.1) se mide POR MES (cuadros tarifarios de SSSalud):
+    # su variacion dentro de un mismo mes es 0%, y si las ventanas cruzan de
+    # mes entra el cambio completo de cuotas. Por eso NO entra salvo que se
+    # pida: asi la comparacion semanal de siempre queda como estaba.
+    incluir_prepagas = st.checkbox(
+        "Incluir prepagas (se mide por mes)",
+        value=False,
+        key="incluir_prepagas",
+        help="Prepagas (06.4.1) sale de los cuadros tarifarios mensuales de SSSalud, no "
+             "de SEPA. Tildalo para ver la variación mensual de todo lo relevado "
+             "(comparando meses distintos). Destildado, esa clase no se calcula y no "
+             "afecta ninguna comparación semanal.",
+    )
+
     # ------------------------------------------------------------
     # PASO DE CONFIRMACION, a pedido: en vez de calcular el resultado
     # apenas la app arranca (con el preset activo por defecto, que puede
@@ -441,6 +458,32 @@ except sqlite3.OperationalError as exc:
     st.error(f"**{exc}** — la base estaba ocupada un instante. Esperá unos segundos y "
              "apretá **'🔄 Actualizar datos'**. No es un problema de tus datos.")
     st.stop()
+# Prepagas (clase 06.4.1): SOLO si se tildo "Incluir prepagas". Se cargan los
+# MESES que tocan las dos ventanas. Un mes sin archivo no frena nada: esa clase
+# queda sin dato y se avisa abajo.
+if incluir_prepagas:
+    _meses_prepagas = periodos_de_la_seleccion(D1, H1, D0, H0)
+    try:
+        with _candado_de_carga():
+            _res_prepagas = asegurar_periodos_cargados(_con(), CARPETA_PREPAGAS, _meses_prepagas)
+    except sqlite3.OperationalError as exc:
+        st.error(f"**{exc}** — la base estaba ocupada un instante. Esperá unos segundos y "
+                 "apretá **'🔄 Actualizar datos'**.")
+        st.stop()
+    if _res_prepagas["cargados"] or _res_prepagas["recargados"]:
+        st.cache_data.clear()
+    if _res_prepagas["sin_archivo"]:
+        st.caption(
+            "ℹ️ Prepagas: no hay cuadro tarifario cargado para "
+            + ", ".join(str(m) for m in _res_prepagas["sin_archivo"])
+            + ". Sin los dos meses, la clase 06.4.1 queda sin dato y Salud se calcula con el resto "
+            "de sus clases (corré `python -m scripts.actualizar_prepagas`)."
+        )
+    elif len(_meses_prepagas) == 1:
+        st.caption(
+            "ℹ️ Prepagas se mide por mes y las dos ventanas caen en el mismo mes: su variación "
+            "es 0%. Para ver el efecto, comparás un mes contra otro."
+        )
 if _res_carga["recargados"]:
     # Un dia cambio de contenido: lo ya calculado con la version vieja no sirve.
     st.cache_data.clear()
@@ -454,8 +497,9 @@ if not _necesarias:
     st.stop()
 
 # ---------------------------------------------------------------- calculo (rapido)
-valores = _valores_medidos_cacheado(_con(), D1, H1, D0, H0)
-divs_detalle = resumen_divisiones_desde_valores(valores, overrides_clase=ov_clase)
+valores = _valores_medidos_cacheado(_con(), D1, H1, D0, H0, incluir_prepagas)
+divs_detalle = resumen_divisiones_desde_valores(valores, overrides_clase=ov_clase,
+                                                incluir_externas=incluir_prepagas)
 r = nivel_general_desde_divisiones(divs_detalle, overrides_division=ov_division)
 
 # ---------------------------------------------------------------- nivel general
@@ -832,7 +876,8 @@ for d in divs_detalle:
                         elif base_v is not None:
                             valores2 = dict(valores)
                             valores2[cod] = nuevo_v
-                            divs2 = resumen_divisiones_desde_valores(valores2, overrides_clase=ov_clase)
+                            divs2 = resumen_divisiones_desde_valores(valores2, overrides_clase=ov_clase,
+                                                            incluir_externas=incluir_prepagas)
                             r2 = nivel_general_desde_divisiones(divs2, overrides_division=ov_division)
                             div2 = next((x for x in divs2 if x.codigo == d.codigo), None)
                             st.success(

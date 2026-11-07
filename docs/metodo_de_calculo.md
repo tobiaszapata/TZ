@@ -32,3 +32,7 @@ calculo anterior sigue disponible con `metodo="previo"` para comparar.
 En el desglose de una subcategoria se pueden elegir productos para dejarlos afuera: se
 recalcula la subcategoria en todas las regiones con el mismo metodo y se muestra el efecto
 en la division y en el nivel general. No modifica la base ni el calculo principal.
+
+
+## Prepagas (06.4.1)
+Se miden con los cuadros tarifarios de SSSalud, no con SEPA, con la misma logica de cobertura e imputacion (7.1) y la misma combinacion regional (Cuadro 6). Detalle completo en `docs/prepagas.md`.

@@ -1,0 +1,57 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><link rel="stylesheet" href="_estilo.css"></head><body>
+<h1>Rutina semanal: SEPA + Prepagas</h1><div class="sub">Qué correr una vez por semana y cómo chequear si hubo cambios</div>
+<div class="toc"><b>Contenido</b><ol><li>Idea general</li><li>La rutina en un solo comando</li><li>Qué hace cada paso</li><li>Qué mirar en el resultado</li><li>Cómo leer los números en la app</li><li>Si usás <code>correr_dia</code> a mano</li><li>Programarlo en el Programador de tareas de Windows</li><li>Problemas frecuentes</li></ol></div>
+
+<h2>1. Idea general</h2>
+<p>Solo cargás SEPA; <b>prepagas se actualiza sola dentro del mismo comando</b>. Una vez por semana alcanza: las entidades cargan sus cuadros durante el mes y a veces corrigen, así que el programa compara la cantidad de filas de los <b>dos últimos meses</b> con las del sitio y, si cambiaron, los vuelve a bajar.</p>
+<div class="ok">Si el sitio de la Superintendencia está caído, la carga de SEPA <b>no se bloquea</b>: el paso de prepagas avisa y sigue.</div>
+
+<h2>2. La rutina en un solo comando</h2>
+<ol class="pasos"><li>Abrí PowerShell en la carpeta del proyecto.</li><li>Corré la actualización completa (equivale al doble clic en <code>actualizar.bat</code>, que además guarda el registro en <code>logs\actualizar.log</code>).</li><li>Esperá a que termine; al final sube todo a GitHub.</li><li>En Streamlit Cloud: <b>Reboot app</b> si no ves los datos nuevos.</li></ol>
+<pre>cd C:\Users\tobia\OneDrive\Desktop\JPM\IPC\relevamiento-precios
+python -m scripts.actualizar</pre>
+
+<h2>3. Qué hace cada paso</h2>
+<table><tr><th>Paso</th><th>Acción</th></tr>
+<tr><td>1</td><td>Descarga los días de SEPA que faltan.</td></tr>
+<tr><td>2</td><td>Los carga a la base.</td></tr>
+<tr><td>2b</td><td><b>Prepagas</b>: baja meses nuevos desde 202607; para los dos últimos meses locales compara el total del sitio con tus filas y re-baja si difiere.</td></tr>
+<tr><td>3</td><td>Exporta el día a <code>historico\</code>.</td></tr>
+<tr><td>4</td><td><code>git add historico/ externos/</code>, commit y push.</td></tr>
+<tr><td>5</td><td>Regenera el HTML de la app.</td></tr></table>
+
+<h2>4. Qué mirar en el resultado</h2>
+<p>En el paso 2b el programa imprime una línea por mes revisado:</p>
+<table><tr><th>Mensaje</th><th>Significa</th></tr>
+<tr><td>«202611: sin cambios (N filas)»</td><td>Nada nuevo; no se baja ni se sube nada.</td></tr>
+<tr><td>«202611: el sitio tiene X filas y vos Y: se vuelve a bajar»</td><td>Entraron o se corrigieron cuadros. Normal en las primeras semanas del mes.</td></tr>
+<tr><td>«202611: N filas guardadas»</td><td>Mes nuevo o re-bajado, ya guardado.</td></tr>
+<tr><td>Aviso de sitio no disponible / error</td><td>No se pudo consultar. Los datos previos quedan intactos; reintentá otro día.</td></tr></table>
+<div class="warn">Un mes nuevo recién publicado llega incompleto (el 7/11 noviembre tenía 7.748 filas vs 11.801 de octubre). Su variación puede mostrar cobertura baja hasta que las entidades terminen de cargar.</div>
+<p>Para ver el detalle de un mes:</p>
+<pre>python -m scripts.consultar_prepagas --mes 202611 --base 202610</pre>
+
+<h2>5. Cómo leer los números en la app</h2>
+<ul><li><b>Para la semanal de Alimentos:</b> dejá el tilde «Incluir prepagas» apagado. Nada cambia.</li><li><b>Para el mensual de todo lo relevado:</b> prendé el tilde. Si ambas ventanas están en el mismo mes, prepagas da 0%; si cruzan de mes, aparece el salto de cuota.</li><li>Un mes sin archivo avisa «sin dato» y no rompe el cálculo.</li></ul>
+
+<h2>6. Si usás <code>correr_dia</code> a mano</h2>
+<p>Ese flujo no incluye prepagas. Después de cargar SEPA, corré solo prepagas (con <code>--subir</code> hace el commit y push de <code>externos\</code>):</p>
+<pre>python -m scripts.actualizar_prepagas --subir</pre>
+<p>Opciones: <code>--desde AAAAMM</code> (piso, por defecto 202607), <code>--hilos N</code> (por defecto 4), <code>--estricto</code> (falla con error si el sitio no responde).</p>
+
+<h2>7. Programarlo en el Programador de tareas de Windows</h2>
+<ol class="pasos"><li>Abrí «Programador de tareas» → <b>Crear tarea básica</b>.</li><li>Nombre: «Relevamiento IPC semanal». Desencadenador: <b>Semanal</b>, elegí día y hora (la PC debe estar prendida).</li><li>Acción: <b>Iniciar un programa</b> → seleccioná <code>actualizar.bat</code> de tu carpeta.</li><li>En «Iniciar en» poné la carpeta del proyecto: <code>C:\Users\tobia\OneDrive\Desktop\JPM\IPC\relevamiento-precios</code>.</li><li>Finalizar. Probalo con clic derecho → <b>Ejecutar</b> y revisá <code>logs\actualizar.log</code>.</li></ol>
+
+<h2>8. Problemas frecuentes</h2>
+<table><tr><th>Síntoma</th><th>Solución</th></tr>
+<tr><td>Prepagas no baja nada</td><td>Sitio caído o bloqueo. Probá <code>python -m scripts.descargar_prepagas --listar</code>; si falla, usá el Plan B del otro manual.</td></tr>
+<tr><td>Falla el push</td><td>Corré <code>git pull</code> y repetí.</td></tr>
+<tr><td>La app no muestra lo nuevo</td><td>Reboot app en Streamlit Cloud.</td></tr>
+<tr><td>Quiero forzar re-bajar un mes</td><td>Borrá <code>externos\prepagas\AAAAMM.csv.gz</code> y corré <code>actualizar_prepagas</code>.</td></tr></table>
+
+<h2>Comandos (resumen)</h2>
+<pre>cd C:\Users\tobia\OneDrive\Desktop\JPM\IPC\relevamiento-precios
+python -m scripts.actualizar
+python -m scripts.actualizar_prepagas --subir
+python -m scripts.consultar_prepagas --mes 202611 --base 202610</pre>
+</body></html>

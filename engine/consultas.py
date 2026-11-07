@@ -39,12 +39,16 @@ from dataclasses import dataclass, field
 from config.canasta import (
     CANASTA,
     CLASES_CON_COBERTURA_SEPA,
+    CLASES_EXTERNAS,
+    CLASES_MEDIDAS,
     PESO_REGION,
     Cobertura,
     clases_de_division,
     divisiones,
+    es_medida,
 )
 from engine.agregacion import laspeyres
+from engine.prepagas import variacion_clase_prepagas
 from engine.reporte import calcular_clase_y_productos, calcular_clase_y_productos_indec
 from storage.db import (
     nombres_de_productos,
@@ -113,6 +117,11 @@ def variacion_clase(con, clase, desde, hasta, desde_base, hasta_base, region=Non
     `excluir_eans`: conjunto de productos (ean_o_id) a dejar afuera del
     calculo, para ver como seria la variacion de la clase sin ellos."""
     excluir_eans = frozenset(excluir_eans or ())
+    if clase in CLASES_EXTERNAS:
+        # Clases medidas con otra fuente (prepagas): mismo contrato de
+        # entrada y de salida, distinto origen de datos. Ver engine/prepagas.py.
+        return variacion_clase_prepagas(con, clase, desde, hasta, desde_base, hasta_base,
+                                        region, variacion_grupo_superior, excluir_eans)
     if metodo == "previo":
         if _es_multibloque(desde):
             p_act = precios_por_producto_en_multiples_rangos(con, clase, desde, region)
@@ -186,12 +195,13 @@ def variacion_clase_nacional_sin_productos(con, clase, desde, hasta, desde_base,
     return _combinar_regiones(por_region, PESO_REGION)[0]
 
 
-def variaciones_de_region(con, desde, hasta, desde_base, hasta_base, region, metodo="indec"):
+def variaciones_de_region(con, desde, hasta, desde_base, hasta_base, region, metodo="indec",
+                          incluir_externas=True):
     """{clase: (VariacionClase)} de TODAS las clases medidas en una region,
     aplicando la imputacion de 7.1 con la variacion de las demas clases del
     grupo cuando una clase tiene cobertura <= 50%."""
     resultados = {}
-    for cod in CLASES_CON_COBERTURA_SEPA:
+    for cod in (CLASES_MEDIDAS if incluir_externas else CLASES_CON_COBERTURA_SEPA):
         res, _ = variacion_clase(con, cod, desde, hasta, desde_base, hasta_base, region,
                                  metodo=metodo)
         if res is not None:
@@ -225,7 +235,7 @@ def division_completa(con, div_codigo, desde, hasta, desde_base, hasta_base,
     tiene_manuales = False
 
     for clase in clases_de_division(div_codigo):
-        if clase.cobertura != Cobertura.MEDIDA_SEPA:
+        if not es_medida(clase):
             continue
         peso = clase.peso(region) * 100
 
@@ -251,7 +261,7 @@ def division_completa(con, div_codigo, desde, hasta, desde_base, hasta_base,
         f.aporte_pp = (f.peso / den * f.variacion_pct) if (den and f.variacion_pct is not None) else None
 
     peso_total = sum(c.peso(region) * 100 for c in clases_de_division(div_codigo)
-                     if c.cobertura == Cobertura.MEDIDA_SEPA)
+                     if es_medida(c))
     return ResultadoDivision(
         codigo=div_codigo, nombre=div.nombre, peso=div.peso(region) * 100,
         variacion_pct=variacion,
@@ -268,7 +278,7 @@ def indice_region(con, desde, hasta, desde_base, hasta_base, region="GBA",
     Acepta los mismos `overrides` que division_completa."""
     overrides = overrides or {}
     num = den = 0.0
-    for cod in CLASES_CON_COBERTURA_SEPA:
+    for cod in CLASES_MEDIDAS:
         peso = CANASTA[cod].peso(region) * 100
         if cod in overrides:
             v = overrides[cod]
@@ -280,7 +290,7 @@ def indice_region(con, desde, hasta, desde_base, hasta_base, region="GBA",
             den += peso
     if not den:
         return None, 0.0
-    peso_medible = sum(CANASTA[c].peso(region) * 100 for c in CLASES_CON_COBERTURA_SEPA)
+    peso_medible = sum(CANASTA[c].peso(region) * 100 for c in CLASES_MEDIDAS)
     return num / den, den / peso_medible if peso_medible else 0.0
 
 
@@ -312,7 +322,7 @@ def resumen_divisiones(con, desde, hasta, desde_base, hasta_base, region="GBA",
     codigo — se pasa tal cual a cada llamado de division_completa."""
     salida = []
     for div in divisiones():
-        tiene = any(c.cobertura == Cobertura.MEDIDA_SEPA
+        tiene = any(es_medida(c)
                     for c in clases_de_division(div.codigo))
         if tiene:
             salida.append(division_completa(con, div.codigo, desde, hasta,
@@ -377,7 +387,7 @@ def nivel_general(con, desde, hasta, desde_base, hasta_base, region="GBA",
             fuente = "manual"
             cobertura_interna = None
         else:
-            tiene_cobertura = any(c.cobertura == Cobertura.MEDIDA_SEPA
+            tiene_cobertura = any(es_medida(c)
                                   for c in clases_de_division(div.codigo))
             if tiene_cobertura:
                 res = division_completa(con, div.codigo, desde, hasta,
@@ -481,7 +491,7 @@ def division_completa_nacional(con, div_codigo, desde, hasta, desde_base, hasta_
     tiene_manuales = False
 
     for clase in clases_de_division(div_codigo):
-        if clase.cobertura != Cobertura.MEDIDA_SEPA:
+        if not es_medida(clase):
             continue
         peso = peso_nacional_clase(clase.codigo)
 
@@ -503,7 +513,7 @@ def division_completa_nacional(con, div_codigo, desde, hasta, desde_base, hasta_
         f.aporte_pp = (f.peso / den * f.variacion_pct) if (den and f.variacion_pct is not None) else None
 
     peso_total = sum(peso_nacional_clase(c.codigo) for c in clases_de_division(div_codigo)
-                     if c.cobertura == Cobertura.MEDIDA_SEPA)
+                     if es_medida(c))
     return ResultadoDivision(
         codigo=div_codigo, nombre=div.nombre, peso=peso_nacional_division(div_codigo),
         variacion_pct=variacion,
@@ -519,7 +529,7 @@ def resumen_divisiones_nacional(con, desde, hasta, desde_base, hasta_base,
     una calculada a nivel pais."""
     salida = []
     for div in divisiones():
-        tiene = any(c.cobertura == Cobertura.MEDIDA_SEPA for c in clases_de_division(div.codigo))
+        tiene = any(es_medida(c) for c in clases_de_division(div.codigo))
         if tiene:
             salida.append(division_completa_nacional(con, div.codigo, desde, hasta,
                                                       desde_base, hasta_base, overrides_clase))
@@ -550,7 +560,7 @@ def nivel_general_nacional(con, desde, hasta, desde_base, hasta_base,
             fuente = "manual"
             cobertura_interna = None
         else:
-            tiene_cobertura = any(c.cobertura == Cobertura.MEDIDA_SEPA
+            tiene_cobertura = any(es_medida(c)
                                   for c in clases_de_division(div.codigo))
             if tiene_cobertura:
                 res = division_completa_nacional(con, div.codigo, desde, hasta,
@@ -605,7 +615,7 @@ def nivel_general_nacional(con, desde, hasta, desde_base, hasta_base,
 # ==========================================================================
 
 def valores_medidos_nacional(con, desde, hasta, desde_base, hasta_base,
-                            metodo="indec") -> dict[str, float]:
+                            metodo="indec", incluir_externas=True) -> dict[str, float]:
     """La parte CARA: la variacion nacional de cada subcategoria medida por
     SEPA (combinando las 6 regiones). No conoce overrides — es el dato tal
     cual lo releva el sistema. Se calcula una vez por rango de fechas.
@@ -613,10 +623,13 @@ def valores_medidos_nacional(con, desde, hasta, desde_base, hasta_base,
     Con metodo "indec" aplica la imputacion del apartado 7.1: en cada region,
     una clase con cobertura <= 50% usa (total o parcialmente) la variacion
     de las demas clases de su grupo."""
-    por_clase: dict[str, dict[str, float]] = {c: {} for c in CLASES_CON_COBERTURA_SEPA}
+    # `incluir_externas=False`: solo SEPA (las clases con fuente externa, como
+    # prepagas, que se mide por mes, no se calculan ni se leen sus archivos).
+    clases = CLASES_MEDIDAS if incluir_externas else CLASES_CON_COBERTURA_SEPA
+    por_clase: dict[str, dict[str, float]] = {c: {} for c in clases}
     for region in PESO_REGION:
         for cod, r in variaciones_de_region(con, desde, hasta, desde_base, hasta_base,
-                                            region, metodo).items():
+                                            region, metodo, incluir_externas).items():
             por_clase[cod][region] = r.variacion_pct
     valores: dict[str, float] = {}
     for codigo, por_region in por_clase.items():
@@ -656,6 +669,7 @@ def variacion_de_grupo(filas_del_grupo: list) -> tuple[float | None, float | Non
 def resumen_divisiones_desde_valores(
     valores_medidos: dict[str, float],
     overrides_clase: dict[str, float] | None = None,
+    incluir_externas: bool = True,
 ) -> list[ResultadoDivision]:
     """La parte BARATA: arma las 12 divisiones a partir de valores YA
     CALCULADOS (ver valores_medidos_nacional), sin tocar la base. Aplicar
@@ -664,7 +678,7 @@ def resumen_divisiones_desde_valores(
     salida = []
     for div in divisiones():
         clases_div = [c for c in clases_de_division(div.codigo)
-                      if c.cobertura == Cobertura.MEDIDA_SEPA]
+                      if es_medida(c) and (incluir_externas or c.codigo not in CLASES_EXTERNAS)]
         if not clases_div:
             salida.append(ResultadoDivision(
                 div.codigo, div.nombre, peso_nacional_division(div.codigo), None, 0.0, []))

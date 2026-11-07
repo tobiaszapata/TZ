@@ -104,6 +104,18 @@ def main() -> int:
     print(f"\n  Dias nuevos incorporados: {len(nuevos)}" + (f" -> {nuevos}" if nuevos else ""))
     print(f"  Total de dias en la base: {len(despues)}")
 
+    # ---------- 2b. prepagas (SSSalud): mensual, nunca bloquea ----------
+    _paso("2b   Prepagas: bajar meses nuevos o cambiados (no bloqueante)")
+    try:
+        from scripts.actualizar_prepagas import sincronizar
+        _r = sincronizar()
+        print(f"  Bajados: {_r['bajados'] or '-'} | Actualizados: {_r['actualizados'] or '-'} "
+              f"| Sin cambios: {_r['sin_cambios'] or '-'}")
+        for _e in _r["errores"]:
+            print(f"  AVISO: {_e}")
+    except Exception as exc:  # nunca debe cortar la carga de SEPA
+        print(f"  AVISO: prepagas no se pudo actualizar ({exc}). SEPA sigue normal.")
+
     # ---------- 3. respaldo + subida a GitHub ----------
     _paso("3/4  Guardar respaldo y subir a GitHub")
     if not despues:
@@ -124,6 +136,8 @@ def main() -> int:
                 print("  (El respaldo quedo guardado en historico/ igual.)")
             else:
                 subprocess.run(["git", "add", "historico/"])
+                if Path("externos").exists():
+                    subprocess.run(["git", "add", "externos/"])
                 sin_cambios = subprocess.run(["git", "diff", "--staged", "--quiet"])
                 if sin_cambios.returncode == 0:
                     print("  No hay dias nuevos para subir.")
